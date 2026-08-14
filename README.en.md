@@ -122,24 +122,73 @@ place of proprietary test data.
 
 | Component | Status |
 |---|---|
-| Sensor simulator | Planned |
+| Sensor simulator | **Done** |
 | Ingestion gateway (Go) | Planned |
 | Analysis engine (Python) | Planned |
 | Persistence (Supabase) | Planned |
 | Dashboard (Streamlit) | Planned |
 
-This README documents the architecture before the first line of code, on
-purpose: design the pipeline first, so every component has a defined
-input/output contract before it exists.
+---
+
+## Sensor simulator
+
+Generates the entire network of sensor points and produces physically
+plausible vibration readings, one window per sensor per second, as NDJSON
+(one JSON object per line), the format the Go gateway will consume in the
+next phase.
+
+```bash
+pip install -r requirements.txt
+python scripts/simular_sensores.py --resumo
+```
+
+`--resumo` shows only the sensor count per state for each window, useful for
+following the simulation without the raw data volume. Without that flag,
+each output line is a full reading (`src/simulador/sensor.py:LeituraSensor`),
+ready to become network input later:
+
+```bash
+python scripts/simular_sensores.py --extensao-km 5 --sensores-por-km 10 --duracao-s 30
+```
+
+**What each sensor actually simulates, not just random noise:**
+
+- **Fatigue damage accumulation** follows the Basquin rule (cyclic stress vs.
+  cycles to failure) summed through the Palmgren-Miner rule at every
+  simulated train passage. 2% of the points are born with a wear rate 8 to 20
+  times higher than normal, simulating older catenary or an installation
+  defect, the pattern the next phase's analysis engine will have to learn to
+  spot from the vibration signal alone.
+- **The vibration signal changes with accumulated damage.** Amplitude at the
+  structural resonance frequency (18 Hz) scales with instantaneous mechanical
+  tension, the 60 Hz traction network coupling is always present, and
+  broadband noise grows with damage, the effect of mechanical looseness and
+  microfractures in degraded catenary.
+- **Daily thermal cycle** (compressed into 5 simulated minutes) shifts the
+  signal baseline, the same variation real thermal expansion would cause
+  over a day.
+
+**Tested at the scale the problem demands:** one reading window for the
+default configuration's 2,000 sensors (40km, 50 sensors/km) runs in
+~165ms of CPU just to generate the data, before any network I/O. That
+number is what makes choosing Go for the gateway an engineering decision,
+not an aesthetic one: data generation alone already eats a significant
+slice of the 1-second-per-window budget, leaving little room for a
+concurrency bottleneck in ingestion.
 
 ---
 
 ## Project structure
 
 ```
-├── cmd/gateway/       Go ingestion gateway
-├── src/                 Python analysis engine
-├── scripts/               sensor simulator and utilities
+├── cmd/gateway/                  Go ingestion gateway (planned)
+├── src/
+│   └── simulador/
+│       ├── sensor.py              physical model of one point (fatigue, vibration)
+│       ├── rede.py                spatial distribution and time orchestration
+│       └── transporte.py          NDJSON serialization
+├── scripts/
+│   └── simular_sensores.py        simulator CLI
 └── docs/
 ```
 

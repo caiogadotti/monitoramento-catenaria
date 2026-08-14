@@ -122,24 +122,73 @@ simplificado no lugar de dados de ensaio proprietários.
 
 | Componente | Status |
 |---|---|
-| Simulador de sensores | Planejado |
+| Simulador de sensores | **Pronto** |
 | Gateway de ingestão (Go) | Planejado |
 | Motor de análise (Python) | Planejado |
 | Persistência (Supabase) | Planejado |
 | Dashboard (Streamlit) | Planejado |
 
-Este README documenta a arquitetura antes da primeira linha de código, de
-propósito: desenhar o pipeline primeiro, para todo componente ter um contrato
-de entrada e saída definido antes de existir.
+---
+
+## Simulador de sensores
+
+Gera a rede inteira de pontos de sensor e produz leituras de vibração
+fisicamente plausíveis, uma janela por sensor por segundo, em NDJSON
+(um objeto JSON por linha), o formato que o gateway em Go vai consumir na
+próxima fase.
+
+```bash
+pip install -r requirements.txt
+python scripts/simular_sensores.py --resumo
+```
+
+`--resumo` mostra só a contagem de sensores por estado a cada janela, útil
+para acompanhar a simulação sem o volume bruto de dados. Sem essa flag, cada
+linha da saída é uma leitura completa (`src/simulador/sensor.py:LeituraSensor`),
+pronta pra virar entrada de rede depois:
+
+```bash
+python scripts/simular_sensores.py --extensao-km 5 --sensores-por-km 10 --duracao-s 30
+```
+
+**O que cada sensor simula de verdade, não só ruído aleatório:**
+
+- **Acúmulo de dano por fadiga** segue a regra de Basquin (tensão cíclica vs.
+  ciclos até falha) somada pela regra de Palmgren-Miner a cada passagem de
+  trem simulada. 2% dos pontos nascem com taxa de desgaste 8 a 20 vezes maior
+  que o normal, simulando catenária mais antiga ou com defeito de instalação,
+  o padrão que o motor de análise da próxima fase vai ter que aprender a
+  distinguir olhando só o sinal de vibração.
+- **O sinal de vibração muda com o dano acumulado.** A amplitude na frequência
+  de ressonância estrutural (18 Hz) escala com a tensão mecânica instantânea,
+  o acoplamento de 60 Hz da rede de tração está sempre presente, e o ruído de
+  banda larga cresce com o dano, o efeito de folga mecânica e microfraturas
+  numa catenária degradada.
+- **Ciclo térmico diário** (comprimido em 5 minutos simulados) desloca a
+  linha de base do sinal, a mesma variação que dilatação térmica real
+  causaria ao longo de um dia.
+
+**Testado na escala que o problema pede:** uma janela de leitura para os
+2.000 sensores da configuração padrão (40km, 50 sensores/km) roda em
+~165ms de CPU só para gerar os dados, antes de qualquer I/O de rede. É
+esse número que torna a escolha de Go para o gateway uma decisão de
+engenharia, não estética: a geração de dados sozinha já consome uma fatia
+grande do orçamento de 1 segundo por janela, sobra pouco espaço para um
+gargalo de concorrência na ingestão.
 
 ---
 
 ## Estrutura do projeto
 
 ```
-├── cmd/gateway/       gateway de ingestão em Go
-├── src/                motor de análise em Python
-├── scripts/             simulador de sensores e utilitários
+├── cmd/gateway/                  gateway de ingestão em Go (planejado)
+├── src/
+│   └── simulador/
+│       ├── sensor.py              modelo físico de um ponto (fadiga, vibração)
+│       ├── rede.py                distribuição espacial e orquestração temporal
+│       └── transporte.py          serialização NDJSON
+├── scripts/
+│   └── simular_sensores.py        CLI do simulador
 └── docs/
 ```
 
