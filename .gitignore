@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+venv/
+.venv/
+env/
+
+.streamlit/secrets.toml
+.pytest_cache/
+.ipynb_checkpoints/
+
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+*.log
+data/mnist_cache.npz
+
+# Go
+bin/
