@@ -5,6 +5,7 @@ Uso:
     python scripts/simular_sensores.py --extensao-km 5 --sensores-por-km 10
     python scripts/simular_sensores.py --duracao-s 30 --intervalo-s 1 > leituras.ndjson
     python scripts/simular_sensores.py --resumo               # só imprime a evolução do estado da rede
+    python scripts/simular_sensores.py --gateway 127.0.0.1:9000 --duracao-s 30  # envia direto pro gateway em Go
 
 Cada linha da saída é um objeto JSON de uma leitura (`src/simulador/sensor.py:LeituraSensor`),
 pronta para ser consumida linha a linha pelo gateway em Go da próxima fase.
@@ -14,11 +15,12 @@ import argparse
 import os
 import sys
 import time
+from contextlib import nullcontext
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from src.simulador.rede import ConfiguracaoRede, RedeCatenaria
-from src.simulador.transporte import escrever_ndjson
+from src.simulador.transporte import conectar_gateway, escrever_ndjson
 
 
 def main() -> None:
@@ -33,6 +35,10 @@ def main() -> None:
     parser.add_argument(
         "--resumo", action="store_true", help="imprime só a contagem de estados por janela, não o NDJSON completo"
     )
+    parser.add_argument(
+        "--gateway", type=str, default=None,
+        help="endereco host:porta do gateway em Go (ex: 127.0.0.1:9000); sem isso, escreve em stdout",
+    )
     args = parser.parse_args()
 
     config = ConfiguracaoRede(
@@ -45,25 +51,33 @@ def main() -> None:
     rede = RedeCatenaria(config)
 
     total_sensores = len(rede.pontos)
+    destino_descricao = f"gateway em {args.gateway}" if args.gateway else "stdout"
     print(
         f"# rede: {total_sensores} sensores em {args.extensao_km}km "
-        f"({args.fracao_degradados:.0%} com desgaste acelerado, seed={args.seed})",
+        f"({args.fracao_degradados:.0%} com desgaste acelerado, seed={args.seed}), "
+        f"destino: {destino_descricao}",
         file=sys.stderr,
     )
 
-    inicio = time.time()
-    while time.time() - inicio < args.duracao_s:
-        leituras = rede.ler_janela()
+    gerenciador_destino = conectar_gateway(args.gateway) if args.gateway else nullcontext(sys.stdout)
 
-        if args.resumo:
-            estado = rede.resumo_estado()
-            decorrido = time.time() - inicio
-            print(f"t={decorrido:6.1f}s  NORMAL={estado['NORMAL']:5d}  "
-                  f"ATENCAO={estado['ATENCAO']:4d}  CRITICO={estado['CRITICO']:4d}")
-        else:
-            escrever_ndjson(leituras)
+    with gerenciador_destino as destino:
+        inicio = time.time()
+        while time.time() - inicio < args.duracao_s:
+            leituras = rede.ler_janela()
 
-        time.sleep(args.intervalo_s)
+            if args.resumo:
+                estado = rede.resumo_estado()
+                decorrido = time.time() - inicio
+                print(f"t={decorrido:6.1f}s  NORMAL={estado['NORMAL']:5d}  "
+                      f"ATENCAO={estado['ATENCAO']:4d}  CRITICO={estado['CRITICO']:4d}")
+
+            # com --gateway, os dados sempre viajam pro Go, o --resumo so
+            # controla se ALEM disso aparece um resumo no terminal
+            if args.gateway or not args.resumo:
+                escrever_ndjson(leituras, destino)
+
+            time.sleep(args.intervalo_s)
 
 
 if __name__ == "__main__":

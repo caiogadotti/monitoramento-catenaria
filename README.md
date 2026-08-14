@@ -101,6 +101,48 @@ milhares de sensores (simulados)
 
 ---
 
+## O gateway, testado sob carga
+
+`go build ./... && go vet ./...` passam limpos, mas isso só prova que o
+código compila, não que a arquitetura de concorrência aguenta o que o
+README promete. Por isso o projeto inclui `cmd/gerador_carga`, uma
+ferramenta que abre milhares de conexões TCP reais contra o gateway e mede
+o resultado, em vez de só declarar um número.
+
+```bash
+go run ./cmd/gateway --porta :9000
+go run ./cmd/gerador_carga --sensores 2000 --alvo 127.0.0.1:9000 --duracao 10s
+```
+
+**Resultado medido:** 2.000 sensores simulados, conectados concorrentemente,
+enviando uma leitura por segundo cada. Zero falhas de conexão, 16.000
+leituras entregues, pico de 2.000 conexões TCP simultaneamente ativas no
+gateway ao mesmo tempo, confirmado pelo próprio log de estatísticas do
+servidor.
+
+### Dois problemas reais que o teste de carga revelou
+
+A primeira versão do teste de carga não passava disso: falhava em 1.381 das
+2.000 conexões. O gateway em si nunca foi o problema, os dois bugs estavam
+no gerador de carga:
+
+**1. `localhost` resolve para IPv6 primeiro no Windows.** A resolução de
+nome preferia `::1`, e boa parte das tentativas de conexão levava
+"connection actively refused" mesmo com o gateway rodando normalmente.
+Corrigido usando `127.0.0.1` explícito em vez de `localhost`.
+
+**2. Disparar 2.000 dials no mesmo instante estoura o backlog de conexões
+pendentes do sistema operacional.** Isso não é um limite do gateway (as
+goroutines dão conta), é o stack TCP local recebendo SYNs mais rápido do
+que consegue enfileirar. A correção não foi só técnica, foi também mais
+realista: sensores de verdade também não conectam todos no mesmo
+microssegundo. `cmd/gerador_carga` agora espalha a abertura das conexões
+numa janela configurável (`--janela-conexao`, padrão 3s) e tenta reconectar
+com um pequeno backoff antes de desistir, o mesmo comportamento que um
+sensor real teria depois de um SYN perdido.
+
+---
+
 ## O modelo de fadiga
 
 ### O fenômeno físico
@@ -188,7 +230,7 @@ trás dos números que é de exemplo, não a lógica que os processa.
 | Componente | Status |
 |---|---|
 | Simulador de sensores | **Pronto** |
-| Gateway de ingestão (Go) | Planejado |
+| Gateway de ingestão (Go) | **Pronto** |
 | Motor de análise (Python) | Planejado |
 | Persistência (Supabase) | Planejado |
 | Dashboard (Streamlit) | Planejado |

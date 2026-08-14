@@ -101,6 +101,47 @@ thousands of sensors (simulated)
 
 ---
 
+## The gateway, load tested
+
+`go build ./... && go vet ./...` pass clean, but that only proves the code
+compiles, not that the concurrency architecture holds up to what the
+README promises. That is why the project includes `cmd/gerador_carga`, a
+tool that opens thousands of real TCP connections against the gateway and
+measures the result, instead of just stating a number.
+
+```bash
+go run ./cmd/gateway --porta :9000
+go run ./cmd/gerador_carga --sensores 2000 --alvo 127.0.0.1:9000 --duracao 10s
+```
+
+**Measured result:** 2,000 simulated sensors, connected concurrently, each
+sending one reading per second. Zero connection failures, 16,000 readings
+delivered, a peak of 2,000 simultaneously active TCP connections on the
+gateway, confirmed by the server's own stats log.
+
+### Two real problems the load test uncovered
+
+The first version of the load test never got there, it failed on 1,381 of
+2,000 connections. The gateway itself was never the problem, both bugs
+were in the load generator:
+
+**1. `localhost` resolves to IPv6 first on Windows.** Name resolution
+preferred `::1`, and a large share of connection attempts got "connection
+actively refused" even with the gateway running normally. Fixed by using
+explicit `127.0.0.1` instead of `localhost`.
+
+**2. Firing 2,000 dials at the same instant overflows the operating
+system's pending connection backlog.** This is not a gateway limit (the
+goroutines handle it fine), it is the local TCP stack receiving SYNs
+faster than it can queue them. The fix was not just technical, it was also
+more realistic: real sensors do not connect at the exact same microsecond
+either. `cmd/gerador_carga` now spreads connection opening across a
+configurable window (`--janela-conexao`, 3s by default) and retries with a
+short backoff before giving up, the same behavior a real sensor would have
+after a dropped SYN.
+
+---
+
 ## The fatigue model
 
 ### The physical phenomenon
@@ -189,7 +230,7 @@ processes them.
 | Component | Status |
 |---|---|
 | Sensor simulator | **Done** |
-| Ingestion gateway (Go) | Planned |
+| Ingestion gateway (Go) | **Done** |
 | Analysis engine (Python) | Planned |
 | Persistence (Supabase) | Planned |
 | Dashboard (Streamlit) | Planned |
