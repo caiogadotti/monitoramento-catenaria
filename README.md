@@ -68,27 +68,27 @@ milhares de sensores (simulados)
         │  publicam leituras de vibração
         ▼
 ┌───────────────────────┐
-│   Gateway de Ingestão   │  Go, uma goroutine por conexão de sensor,
-│         (Go)            │  agregação concorrente via channels
-└───────────┬─────────────┘
+│   Gateway de Ingestão │  Go, uma goroutine por conexão de sensor,
+│         (Go)          │  agregação concorrente via channels
+└───────────┬───────────┘
             │  lotes agregados
             ▼
 ┌───────────────────────┐
-│   Motor de Análise       │  Python, FFT do sinal de vibração,
-│      (Python)            │  modelo de acúmulo de fadiga (regra de Basquin
-│                          │  simplificada), classificação de risco
-└───────────┬─────────────┘
+│   Motor de Análise    │  Python, FFT do sinal de vibração,
+│      (Python)         │  modelo de acúmulo de fadiga (regra de Basquin
+│                       │  simplificada), classificação de risco
+└───────────┬───────────┘
             │  leituras + alertas
             ▼
 ┌───────────────────────┐
-│      Supabase             │  Postgres, histórico de leituras,
-│    (Postgres)            │  alertas, pontos de sensor cadastrados
-└───────────┬─────────────┘
+│      Supabase         │  Postgres, histórico de leituras,
+│    (Postgres)         │  alertas, pontos de sensor cadastrados
+└───────────┬───────────┘
             │
             ▼
 ┌───────────────────────┐
-│      Dashboard             │  Streamlit, mapa da linha, ranking de
-│      (Streamlit)          │  pontos críticos, série temporal de vibração
+│      Dashboard        │  Streamlit, mapa da linha, ranking de
+│      (Streamlit)      │  pontos críticos, série temporal de vibração
 └───────────────────────┘
 ```
 
