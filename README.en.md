@@ -33,8 +33,8 @@ pantograph.
 
 Catenary is critical infrastructure under constant mechanical stress:
 tension load, vibration from train passage, thermal variation, contact wear.
-A failure does not announce itself, it accumulates through fatigue cycles
-over months. This project takes the problem I used to see represented as a
+A failure builds up silently, through fatigue cycles over months, until it
+breaks without warning. This project takes the problem I used to see represented as a
 floor plan and turns it into the real software engineering problem behind
 it: how would a system need to be designed to capture that in real time,
 at the scale of thousands of sensor points across an entire line, without
@@ -101,20 +101,86 @@ thousands of sensors (simulated)
 
 ---
 
-## The fatigue model, with an important caveat
+## The fatigue model
 
-Structural damage accumulation here uses a simplified version of the
-**Basquin rule** (the relationship between cyclic stress amplitude and
-number of cycles to failure), combined with the **Palmgren-Miner rule** to
-sum damage from variable-amplitude cycles. It is the same principle used in
-real fatigue engineering, but calibrated with example parameters, not with
-real catenary cable material test data.
+### The physical phenomenon
 
-**This does not replace a certified structural analysis.** The final number
-the model spits out matters less than the architecture that produces it.
-The ingestion, processing and decision pipeline is the same shape a real
-monitoring system would use, just with a simplified physical model in
-place of proprietary test data.
+Fatigue is structural degradation under cyclic loading: forces that rise
+and fall repeatedly. Even when each cycle stays well below the material's
+rupture limit, repetition creates microfractures that propagate over time
+until the part can no longer carry the load, and the rupture happens
+suddenly, not gradually. That is what makes fatigue dangerous: the cable
+can look intact right up to the exact cycle it breaks on.
+
+### The Basquin rule: how many cycles to failure
+
+Proposed by O. H. Basquin in 1910, it describes the relationship between
+cyclic stress amplitude and the number of cycles a material withstands
+before failing, in the elastic regime (no visible plastic deformation):
+
+$$\sigma_a = \sigma'_f \, (2N_f)^b$$
+
+| Symbol | Meaning |
+|---|---|
+| $\sigma_a$ | cyclic stress amplitude |
+| $\sigma'_f$ | material's fatigue strength coefficient (from real test data) |
+| $N_f$ | number of cycles to failure |
+| $b$ | Basquin exponent, negative, the slope of the curve on a log-log scale |
+
+### The Palmgren-Miner rule: summing variable-amplitude cycles
+
+Basquin alone only answers the right question for constant stress. A real
+catenary cable experiences variable stress: a wind gust produces strong
+cycles, a breeze produces weak ones. Palmgren (1924) and Miner (1945),
+independently, proposed that damage is linear, cumulative and
+irreversible: each cycle consumes a fraction of the fatigue life, and
+failure happens when those fractions add up to 1:
+
+$$D = \sum_{i=1}^{k} \frac{n_i}{N_i} \qquad \text{failure when } D \geq 1$$
+
+Where $n_i$ is how many cycles happened at stress level $i$, and $N_i$ is
+how many cycles that stress level would withstand before failing (Basquin
+answers that).
+
+### How this becomes code
+
+| Theory symbol | Where it lives in `sensor.py` |
+|---|---|
+| $\sigma_a$ | `amplitude_tensao_n`, the stress peak of each simulated train passage |
+| $\sigma'_f$ | `TENSAO_REFERENCIA_N` |
+| $b$ (in the form $N_f = (\sigma_a/\sigma'_f)^{1/b}$) | `EXPOENTE_BASQUIN`, with $1/b = -\text{EXPOENTE\_BASQUIN}$ |
+| $N_i$ | `ciclos_ate_falha`, computed at every passage from that specific cycle's amplitude |
+| a single cycle's $n_i/N_i$ | `dano_por_ciclo = (1.0 / ciclos_ate_falha) * self.taxa_desgaste` |
+| $D = \sum n_i/N_i$ | `self._dano_acumulado`, summed on every call to `registrar_passagem_de_trem` |
+| $D \geq 1$ | `dano_acumulado >= LIMIAR_CRITICO` (0.7, not 1.0, on purpose: the alert fires before the theoretical failure point, with a safety margin) |
+
+`taxa_desgaste` is an extension beyond classic theory: a per-sensor
+multiplier simulating variance in material quality or
+installation between different points on the same line. Without it, every
+sensor would follow the same damage trajectory, and there would be nothing
+for the next phase's analysis engine to learn to tell apart.
+
+### The honest caveat
+
+The chosen exponent (`EXPOENTE_BASQUIN = 6.0`, equivalent to $b \approx
+-0.167$) is much more aggressive than typical real metal values ($b$
+between $-0.05$ and $-0.12$). The choice is deliberate: with a realistic
+$b$, the simulation would take entire days of real time to accumulate
+visible damage. With the current exponent, damage evolves in minutes, fast
+enough to test and demonstrate the whole pipeline in one work session.
+$\sigma'_f$ is also an example value, not from real catenary cable material
+test data. The code also simplifies the conversion between reversals and
+cycles ($2N_f$ in the original formula becomes $N_f$ directly), with no
+impact on the accumulation logic, only on the absolute scale of the number.
+
+**This does not replace a certified structural analysis.** The final
+number the model spits out matters less than the architecture that
+produces it. The ingestion, processing and decision pipeline is the same
+shape a real monitoring system would use: sensors measure stress cycles,
+Basquin estimates how many cycles that level withstands, Miner sums the
+historical damage, and a threshold fires the alert before failure. Only
+the material behind the numbers is an example, not the logic that
+processes them.
 
 ---
 
