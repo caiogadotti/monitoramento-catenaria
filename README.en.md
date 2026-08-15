@@ -338,6 +338,42 @@ enter the average and get worse if the sensor suddenly changes wear
 regime, the kind of case a future version would handle with a
 sliding-window regression instead of the full running average.
 
+### Persistence in Supabase
+
+Every processed reading and every state transition (NORMAL to ATENCAO or
+CRITICO) is written to two Postgres tables via
+`src/persistencia/supabase.py`, with no hardcoded credential: the whole
+connection comes from `SUPABASE_DB_URL` in the environment, read in
+`_url_conexao()`, which fails early with a clear message if the variable
+is missing instead of falling back to a default.
+
+```sql
+catenaria_leituras   -- one row per reading: sensor, km, stress, temperature,
+                      -- dano_ciclos, dano_espectral, snr_db, rul_segundos, estado
+catenaria_alertas    -- one row per state transition fired
+```
+
+`scripts/motor_analise.py --supabase` buffers readings in memory and
+writes them in batches (`--lote-supabase`, 50 by default) via
+`psycopg2.extras.execute_values`, writing one row at a time would waste
+most of the time on network round-trips instead of disk I/O. Alerts are
+rare by nature (only fire on a state transition), so those write
+immediately, without waiting for the batch.
+
+**Isolation decision:** the account's Supabase org already had both free
+project slots taken (Descartee's App Corte/Estoque production database
+and the Portal RH one), so this project's tables live prefixed
+`catenaria_` inside the `portalrh` project instead of a new one, with Row
+Level Security enabled and a public read policy (`select` for
+`anon`/`authenticated`), no write policy: the analysis engine writes
+directly through the connection string, which does not go through
+client-side RLS.
+
+```bash
+cp .env.example .env   # fill in SUPABASE_DB_URL with the pooler connection string
+python scripts/motor_analise.py --arquivo leituras.ndjson --supabase
+```
+
 ---
 
 ## Current status
@@ -347,7 +383,7 @@ sliding-window regression instead of the full running average.
 | Sensor simulator | **Done** |
 | Ingestion gateway (Go) | **Done** |
 | Analysis engine (Python) | **Done** |
-| Persistence (Supabase) | Planned |
+| Persistence (Supabase) | **Done** |
 | Dashboard (Streamlit) | Planned |
 
 ---
@@ -403,14 +439,25 @@ concurrency bottleneck in ingestion.
 ## Project structure
 
 ```
-├── cmd/gateway/                  Go ingestion gateway (planned)
+├── cmd/
+│   ├── gateway/                   Go TCP ingestion gateway
+│   └── gerador_carga/             gateway load-testing tool
+├── internal/ingestao/             concurrent TCP server, batch aggregation
 ├── src/
-│   └── simulador/
-│       ├── sensor.py              physical model of one point (fatigue, vibration)
-│       ├── rede.py                spatial distribution and time orchestration
-│       └── transporte.py          NDJSON serialization
+│   ├── simulador/
+│   │   ├── sensor.py              physical model of one point (fatigue, vibration)
+│   │   ├── rede.py                spatial distribution and time orchestration
+│   │   └── transporte.py          NDJSON serialization, gateway connection
+│   ├── analise/
+│   │   ├── fadiga.py              cycle-based damage accumulator (Basquin/Miner) + RUL
+│   │   ├── espectro.py            spectral damage estimator (FFT) + SNR
+│   │   └── motor.py               orchestrates both estimators per sensor
+│   └── persistencia/
+│       └── supabase.py            writes readings and alerts to Postgres
 ├── scripts/
-│   └── simular_sensores.py        simulator CLI
+│   ├── simular_sensores.py        simulator CLI
+│   ├── motor_analise.py           analysis engine CLI
+│   └── calibrar_espectro.py       spectral estimator calibration
 └── docs/
 ```
 

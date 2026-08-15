@@ -13,9 +13,13 @@ Uso:
     # ou testando sem rede, direto de um arquivo gerado antes:
     python scripts/simular_sensores.py --duracao-s 30 > leituras.ndjson
     python scripts/motor_analise.py --arquivo leituras.ndjson
+
+    # persistindo no Supabase (precisa de SUPABASE_DB_URL no ambiente):
+    python scripts/motor_analise.py --arquivo leituras.ndjson --supabase
 """
 
 import argparse
+import datetime
 import json
 import os
 import sys
@@ -80,12 +84,32 @@ def main() -> None:
         "--intervalo-relatorio", type=int, default=500,
         help="a cada quantas leituras imprime um resumo compacto (0 desativa)",
     )
+    parser.add_argument(
+        "--supabase", action="store_true",
+        help="persiste leituras e alertas no Postgres do Supabase (requer SUPABASE_DB_URL)",
+    )
+    parser.add_argument(
+        "--lote-supabase", type=int, default=50,
+        help="quantas leituras acumular antes de gravar em lote no Supabase",
+    )
     args = parser.parse_args()
 
     origem = open(args.arquivo, encoding="utf-8") if args.arquivo else sys.stdin
 
     motor = MotorAnalise()
     estatisticas = Estatisticas()
+
+    conexao_supabase = None
+    lote_leituras: list[tuple] = []
+    if args.supabase:
+        from src.persistencia.supabase import abrir_conexao, gravar_alerta, gravar_leituras_lote
+
+        conexao_supabase = abrir_conexao()
+
+    def _flush_lote() -> None:
+        if lote_leituras:
+            gravar_leituras_lote(conexao_supabase, lote_leituras)
+            lote_leituras.clear()
 
     try:
         for linha in origem:
@@ -107,9 +131,34 @@ def main() -> None:
                     file=sys.stderr,
                 )
 
+            if conexao_supabase is not None:
+                lote_leituras.append((
+                    avaliacao.sensor_id,
+                    avaliacao.km,
+                    datetime.datetime.fromtimestamp(leitura["timestamp"], tz=datetime.timezone.utc),
+                    leitura["tensao_mecanica_n"],
+                    leitura["temperatura_c"],
+                    avaliacao.dano_ciclos,
+                    avaliacao.dano_espectral,
+                    avaliacao.snr_db,
+                    avaliacao.rul_segundos,
+                    avaliacao.estado,
+                    avaliacao.ciclos_contados,
+                ))
+                if len(lote_leituras) >= args.lote_supabase:
+                    _flush_lote()
+                if disparou_alerta:
+                    gravar_alerta(
+                        conexao_supabase, avaliacao.sensor_id, avaliacao.km,
+                        avaliacao.estado, avaliacao.dano_ciclos, avaliacao.dano_espectral,
+                    )
+
             if args.intervalo_relatorio and estatisticas.total_leituras % args.intervalo_relatorio == 0:
                 estatisticas.imprimir(sys.stderr, completo=False)
     finally:
+        if conexao_supabase is not None:
+            _flush_lote()
+            conexao_supabase.close()
         if args.arquivo:
             origem.close()
 

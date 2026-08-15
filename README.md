@@ -337,6 +337,42 @@ mudar de regime de desgaste de repente, o tipo de caso que uma versão
 futura resolveria com regressão numa janela deslizante em vez da média
 completa.
 
+### Persistência no Supabase
+
+Cada leitura processada e cada transição de estado (NORMAL → ATENCAO ou
+CRITICO) são gravadas em duas tabelas Postgres via
+`src/persistencia/supabase.py`, sem nenhuma credencial hardcoded: a
+conexão inteira vem de `SUPABASE_DB_URL` no ambiente, lida em
+`_url_conexao()`, que falha cedo com uma mensagem clara se a variável não
+existir em vez de tentar um valor padrão.
+
+```sql
+catenaria_leituras   -- uma linha por leitura: sensor, km, tensão, temperatura,
+                      -- dano_ciclos, dano_espectral, snr_db, rul_segundos, estado
+catenaria_alertas    -- uma linha por transição de estado disparada
+```
+
+`scripts/motor_analise.py --supabase` acumula leituras em memória e grava
+em lote (`--lote-supabase`, 50 por padrão) via
+`psycopg2.extras.execute_values`, gravar linha por linha desperdiçaria a
+maior parte do tempo em round-trip de rede em vez de I/O de disco. Alertas
+são raros por natureza (só disparam em transição de estado), então esses
+gravam imediatamente, sem esperar o lote.
+
+**Decisão de isolamento:** o projeto Supabase da conta já tinha os dois
+projetos gratuitos no limite (o banco de produção do App Corte/Estoque da
+Descartee e o do Portal RH), então as tabelas deste projeto entraram
+prefixadas `catenaria_` dentro do projeto `portalrh` em vez de um projeto
+novo, com Row Level Security habilitada e uma policy de leitura pública
+(`select` para `anon`/`authenticated`), sem policy de escrita: quem
+escreve é o motor de análise, direto pela connection string, que não
+passa pelo RLS de cliente.
+
+```bash
+cp .env.example .env   # preencher SUPABASE_DB_URL com a connection string do pooler
+python scripts/motor_analise.py --arquivo leituras.ndjson --supabase
+```
+
 ---
 
 ## Estado atual
@@ -346,7 +382,7 @@ completa.
 | Simulador de sensores | **Pronto** |
 | Gateway de ingestão (Go) | **Pronto** |
 | Motor de análise (Python) | **Pronto** |
-| Persistência (Supabase) | Planejado |
+| Persistência (Supabase) | **Pronto** |
 | Dashboard (Streamlit) | Planejado |
 
 ---
@@ -402,14 +438,25 @@ gargalo de concorrência na ingestão.
 ## Estrutura do projeto
 
 ```
-├── cmd/gateway/                  gateway de ingestão em Go (planejado)
+├── cmd/
+│   ├── gateway/                   gateway de ingestão TCP em Go
+│   └── gerador_carga/             ferramenta de load test do gateway
+├── internal/ingestao/             servidor TCP concorrente, agregação em lotes
 ├── src/
-│   └── simulador/
-│       ├── sensor.py              modelo físico de um ponto (fadiga, vibração)
-│       ├── rede.py                distribuição espacial e orquestração temporal
-│       └── transporte.py          serialização NDJSON
+│   ├── simulador/
+│   │   ├── sensor.py              modelo físico de um ponto (fadiga, vibração)
+│   │   ├── rede.py                distribuição espacial e orquestração temporal
+│   │   └── transporte.py          serialização NDJSON, conexão com o gateway
+│   ├── analise/
+│   │   ├── fadiga.py              acumulador de dano por ciclos (Basquin/Miner) + RUL
+│   │   ├── espectro.py            estimador de dano espectral (FFT) + SNR
+│   │   └── motor.py               orquestra os dois estimadores por sensor
+│   └── persistencia/
+│       └── supabase.py            grava leituras e alertas no Postgres
 ├── scripts/
-│   └── simular_sensores.py        CLI do simulador
+│   ├── simular_sensores.py        CLI do simulador
+│   ├── motor_analise.py           CLI do motor de análise
+│   └── calibrar_espectro.py       calibração do estimador espectral
 └── docs/
 ```
 
