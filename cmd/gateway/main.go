@@ -30,31 +30,26 @@ func main() {
 	lotes := make(chan ingestao.Lote, 8)
 	servidor := ingestao.NovoServidor(*porta, *intervaloLote, lotes)
 
-	// enquanto o motor de analise (fase 3) nao existe, o main so descreve
-	// cada lote fechado -- a interface (canal de Lote) e o que importa,
-	// nao quem consome do outro lado
-	go imprimirResumoDosLotes(lotes)
+	// stdout carrega só dado (uma leitura por linha, mesmo schema NDJSON
+	// que o simulador Python produz), para poder ser encadeado direto num
+	// pipe: `go run ./cmd/gateway | python scripts/motor_analise.py`.
+	// Estatísticas e erros vão para o log, que escreve em stderr por
+	// padrão -- os dois fluxos nunca se misturam no mesmo stream.
+	go publicarLeituras(lotes)
 
 	if err := servidor.Iniciar(ctx); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func imprimirResumoDosLotes(lotes <-chan ingestao.Lote) {
+func publicarLeituras(lotes <-chan ingestao.Lote) {
 	codificador := json.NewEncoder(os.Stdout)
 
 	for lote := range lotes {
-		criticos := 0
 		for _, leitura := range lote.Leituras {
-			if leitura.Estado == "CRITICO" {
-				criticos++
+			if err := codificador.Encode(leitura); err != nil {
+				log.Printf("erro ao publicar leitura: %v", err)
 			}
 		}
-
-		codificador.Encode(map[string]any{
-			"fechado_em":        lote.FechadoEm.Format(time.RFC3339),
-			"leituras_no_lote":  len(lote.Leituras),
-			"sensores_criticos": criticos,
-		})
 	}
 }

@@ -190,7 +190,7 @@ responde isso).
 |---|---|
 | $\sigma_a$ | `amplitude_tensao_n`, o pico de tensão de cada passagem de trem |
 | $\sigma'_f$ | `TENSAO_REFERENCIA_N` |
-| $b$ (na forma $N_f = (\sigma_a/\sigma'_f)^{1/b}$) | `EXPOENTE_BASQUIN`, com $1/b = -\text{EXPOENTE\_BASQUIN}$ |
+| $b$ (na forma $N_f = (\sigma_a/\sigma'_f)^{1/b}$) | `EXPOENTE_BASQUIN`, com $1/b = -\text{EXPOENTE}\_\text{BASQUIN}$ |
 | $N_i$ | `ciclos_ate_falha`, calculado a cada passagem a partir da amplitude daquele ciclo específico |
 | $n_i/N_i$ de um único ciclo | `dano_por_ciclo = (1.0 / ciclos_ate_falha) * self.taxa_desgaste` |
 | $D = \sum n_i/N_i$ | `self._dano_acumulado`, somado a cada chamada de `registrar_passagem_de_trem` |
@@ -223,6 +223,120 @@ Basquin estima quantos ciclos aquele nível aguenta, Miner soma o dano
 histórico, e um limiar dispara o alerta antes da falha. Só o material por
 trás dos números que é de exemplo, não a lógica que os processa.
 
+Numa versão certificada, os valores ilustrativos daqui viriam de normas
+técnicas específicas, não de escolha livre: a ABNT NBR 8800 traz a
+verificação de fadiga e as tabelas de ciclos admissíveis para estruturas
+de aço; a NBR 5422 rege o cálculo mecânico de cabos aéreos suspensos sob
+vento, gelo e temperatura; e a NBR 13982 especifica o próprio ensaio de
+vibração eólica em cabos que gera $b$ e $\sigma'_f$ em laboratório, os
+dois parâmetros que este projeto assume por exemplo. Para catenária
+ferroviária especificamente, o setor no Brasil usa o manual da AREMA
+junto com a NBR 8800, já que não existe uma NBR dedicada a esse caso.
+
+---
+
+## O motor de análise
+
+O motor recebe o que o gateway publica (uma leitura por linha, o mesmo
+schema NDJSON do simulador) e decide o risco de cada sensor de duas
+formas independentes, sem nunca ler o `dano_acumulado` que o simulador já
+sabe:
+
+**1. Por ciclos (Basquin/Miner), replicado a partir da tensão bruta.**
+`src/analise/fadiga.py` reimplementa a mesma regra do simulador, mas sem
+conhecer a tensão de repouso do cabo de antemão, porque nenhum sensor
+real conheceria. A linha de base é estimada online: leituras próximas do
+valor recente atualizam a linha de base devagar, saltos abruptos acima de
+1500N contam como ciclo de passagem e alimentam Basquin.
+
+**2. Por análise espectral (FFT), a partir da vibração bruta.** O sinal
+de vibração soma uma oscilação estrutural marcada, o acoplamento de 60Hz
+da rede de tração, e ruído de banda larga cuja intensidade cresce com o
+desgaste. `src/analise/espectro.py` separa os dois picos conhecidos do
+resto do espectro via `numpy.fft.rfft`, e usa a potência que sobra (o
+piso de ruído) como indício independente de dano.
+
+### Um erro de modelo real, encontrado testando no pipeline de verdade
+
+A primeira versão do estimador espectral parecia funcionar: calibrada e
+validada isolando tensão de base e temperatura fixas, o erro médio ficava
+em 0.06. Rodando no pipeline completo, com tensão de base e temperatura
+variando por sensor como a rede real produz, o erro saltou para 0.13,
+praticamente constante não importa o dano real, sinal de viés sistemático,
+não de ruído.
+
+A causa: o modelo original ajustava uma **reta** entre potência espectral
+e dano. Fisicamente errado. Potência é o quadrado de uma amplitude, e é o
+**desvio padrão** do ruído que cresce linear com o dano
+(`intensidade_ruido = RUIDO_BASE + RUIDO_POR_DANO · dano`, a mesma fórmula
+que gera o sinal no simulador). Uma reta ajustada numa relação quadrática
+funciona por acaso na faixa estreita onde foi calibrada e falha fora dela,
+e extrapolava para potência negativa perto de dano zero, o que já era o
+sinal de alerta que passou despercebido na primeira validação.
+
+A correção: `scripts/calibrar_espectro.py` agora ajusta um único fator de
+escala `k` tal que `piso_de_potencia ≈ k · intensidade_ruido²`, com
+tensão de base e temperatura variando junto com o dano nos dados de
+calibração. `k` fica em **1.0127**, perto de 1.0, confirmando que a
+potência média por bin de ruído branco é aproximadamente igual à
+variância do processo no tempo. Não é um número mágico ajustado até
+funcionar, é a confirmação de que a forma quadrática é a física certa.
+
+**Resultado, no mesmo pipeline completo que antes media 0.13 de erro:**
+
+| Estimador | Erro médio absoluto | Fonte |
+|---|---:|---|
+| Por ciclos (Basquin/Miner) | **0.0018** | tensão mecânica bruta |
+| Espectral (FFT), modelo corrigido | **0.0021** | vibração bruta |
+| Espectral (FFT), modelo original (linear) | 0.13 | mesmo dado, fórmula errada |
+
+Testado com o pipeline real inteiro: `simulador → TCP → gateway em Go →
+pipe → motor de análise`, não com dado sintético isolado.
+
+```bash
+go build -o gateway.exe ./cmd/gateway
+./gateway.exe --porta :9000 | python scripts/motor_analise.py &
+python scripts/simular_sensores.py --gateway 127.0.0.1:9000 --duracao-s 30
+```
+
+### RUL e SNR: duas métricas a mais, sem inventar sensor novo
+
+Além do dano bruto, o motor calcula duas métricas comuns em manutenção
+preditiva de verdade, reaproveitando o que já é computado a cada leitura:
+
+**Vida útil restante (RUL).** `AcumuladorDano` (`src/analise/fadiga.py`)
+agora recebe o timestamp de cada leitura e extrapola linearmente a taxa
+média de acúmulo de dano desde a primeira leitura daquele sensor para
+estimar quanto tempo falta até cruzar `LIMIAR_CRITICO`. É uma
+extrapolação simples, não uma regressão robusta a mudança de regime, e o
+código documenta essa limitação explicitamente: ela assume que o ritmo de
+desgaste observado até agora continua igual.
+
+**SNR (relação sinal-ruído).** O motor já separa os dois picos conhecidos
+do espectro (18Hz estrutural, 60Hz da rede) do resto para calcular o dano
+espectral. O SNR (`src/analise/espectro.py:estimar_snr_db`) é a mesma
+separação lida do outro lado: potência dos picos sobre potência do piso
+de ruído, em dB. Serve como indicador independente de qualidade do sinal,
+relevante numa via eletrificada com interferência eletromagnética alta.
+
+**Validado com um sensor sintético de desgaste acelerado**
+(`taxa_desgaste=12`, para cruzar o limiar em minutos em vez de dias):
+
+| Métrica | Resultado medido |
+|---|---|
+| RUL: previsão feita a 80% do limiar crítico vs. instante real em que o cruzou | erro de 17.9s, **8.7%** do horizonte previsto |
+| SNR com dano < 0.1 | **31.1 dB** |
+| SNR com dano > 0.5 | **10.1 dB** |
+
+O SNR caindo de 31dB para 10dB conforme o dano sobe confirma o que o
+estimador espectral já assume: ruído de banda larga cresce com o
+desgaste, então a relação sinal-ruído tem que cair. O erro do RUL em
+torno de 9% é esperado de uma extrapolação linear simples, ele tende a
+melhorar conforme mais leituras entram na média e piorar se o sensor
+mudar de regime de desgaste de repente, o tipo de caso que uma versão
+futura resolveria com regressão numa janela deslizante em vez da média
+completa.
+
 ---
 
 ## Estado atual
@@ -231,7 +345,7 @@ trás dos números que é de exemplo, não a lógica que os processa.
 |---|---|
 | Simulador de sensores | **Pronto** |
 | Gateway de ingestão (Go) | **Pronto** |
-| Motor de análise (Python) | Planejado |
+| Motor de análise (Python) | **Pronto** |
 | Persistência (Supabase) | Planejado |
 | Dashboard (Streamlit) | Planejado |
 
