@@ -299,6 +299,46 @@ go build -o gateway.exe ./cmd/gateway
 python scripts/simular_sensores.py --gateway 127.0.0.1:9000 --duracao-s 30
 ```
 
+### O erro médio escondia o caso que importa
+
+Esses dois números acima, quase empatados, sugerem que os estimadores são
+intercambiáveis. Não são, e o teste de ponta a ponta da persistência
+mostrou isso da pior forma: um sensor com dano real de **0.652**, a um
+passo do limiar crítico de 0.7, foi classificado como **NORMAL** e não
+disparou alerta nenhum.
+
+| | dano real | por ciclos | espectral |
+|---|---:|---:|---:|
+| sensor com desgaste acelerado | 0.652 | **0.049** | 0.609 |
+| os outros 9 do teste | < 0.04 | erro < 0.008 | erro < 0.009 |
+
+A contagem de ciclos é **cega para desgaste acelerado**, e isso é inerente,
+não um bug de conta. O simulador multiplica o dano de cada passagem pela
+`taxa_desgaste` do ponto (2% dos sensores nascem com 8 a 20 vezes o
+normal, simulando catenária velha ou defeito de instalação). Contando
+ciclos de tensão não há como inferir esse fator: dois pontos com a mesma
+carga e o mesmo número de passagens produzem a mesma contagem, estejam ou
+não se degradando em ritmos diferentes. E nenhum sensor real conheceria a
+taxa do próprio ponto.
+
+O estimador espectral acertou (0.609 contra 0.652) porque lê o piso de
+ruído da vibração, que reflete o dano físico independente da taxa. A
+premissa do projeto se confirmou justamente no caso que ela existia para
+resolver. O erro estava em deixar a decisão de alerta com o estimador cego.
+
+**A correção,** em `src/analise/motor.py`: o estado do sensor passa a sair
+do **maior** dos dois danos, a leitura conservadora num sistema cuja função
+é avisar antes da falha. E a divergência entre os estimadores, que antes
+era só ruído, virou sinal: acima de `LIMIAR_DIVERGENCIA` (0.15) o ponto é
+marcado como suspeito de desgaste acelerado.
+
+**Validado em 150 sensores, 2.850 leituras:** 3 pontos sinalizados, ou seja
+os mesmos 2% que o simulador cria com defeito, e são exatamente os 3 de
+maior dano real da rede, sem nenhum falso positivo. O dano oficial (o maior
+dos dois) fica em **0.0041** de erro médio, entre os 0.0063 da contagem de
+ciclos e os 0.0036 do espectral, mas sem o ponto cego que deixava passar o
+sensor prestes a falhar.
+
 ### RUL e SNR: duas métricas a mais, sem inventar sensor novo
 
 Além do dano bruto, o motor calcula duas métricas comuns em manutenção

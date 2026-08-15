@@ -32,6 +32,15 @@ LIMIAR_CICLO_N = 1500.0
 GANHO_LINHA_DE_BASE = 0.05
 
 
+def classificar_estado(dano: float) -> str:
+    """Mapeia um valor de dano para NORMAL, ATENCAO ou CRITICO."""
+    if dano >= LIMIAR_CRITICO:
+        return "CRITICO"
+    if dano >= LIMIAR_ATENCAO:
+        return "ATENCAO"
+    return "NORMAL"
+
+
 @dataclass
 class AcumuladorDano:
     """Replica a regra de Basquin + Palmgren-Miner a partir de leituras cruas.
@@ -41,6 +50,18 @@ class AcumuladorDano:
     leituras próximas do valor recente são tratadas como repouso e
     atualizam a linha de base devagar; saltos abruptos acima do limiar são
     tratados como ciclo de passagem de trem e alimentam Basquin.
+
+    **Limitação conhecida e inerente:** este estimador é cego para desgaste
+    acelerado. O simulador multiplica o dano de cada ciclo pela
+    `taxa_desgaste` do ponto (2% dos sensores nascem com 8 a 20x o normal,
+    simulando catenária velha ou defeito de instalação), e não há como
+    inferir esse fator só contando ciclos de tensão: dois pontos com a
+    mesma carga e o mesmo número de passagens produzem exatamente a mesma
+    contagem, independente de estarem se degradando em ritmos diferentes.
+
+    Num teste real, um sensor com dano verdadeiro de 0.652 foi estimado em
+    0.049 por aqui, enquanto o estimador espectral acertou 0.609. É por
+    isso que o `MotorAnalise` cruza os dois em vez de confiar só neste.
     """
 
     sensor_id: str
@@ -52,11 +73,13 @@ class AcumuladorDano:
 
     @property
     def estado(self) -> str:
-        if self.dano_acumulado >= LIMIAR_CRITICO:
-            return "CRITICO"
-        if self.dano_acumulado >= LIMIAR_ATENCAO:
-            return "ATENCAO"
-        return "NORMAL"
+        """Estado considerando só a contagem de ciclos.
+
+        Cego para desgaste acelerado: veja a ressalva na docstring da classe
+        e a decisão em `src/analise/motor.py`, que é quem define o estado
+        oficial do sensor cruzando este valor com a estimativa espectral.
+        """
+        return classificar_estado(self.dano_acumulado)
 
     @property
     def taxa_dano_por_segundo(self) -> float:

@@ -300,6 +300,48 @@ go build -o gateway.exe ./cmd/gateway
 python scripts/simular_sensores.py --gateway 127.0.0.1:9000 --duracao-s 30
 ```
 
+### The mean error was hiding the case that matters
+
+Those two numbers above, nearly tied, suggest the estimators are
+interchangeable. They are not, and the end to end persistence test showed
+it the hard way: a sensor with **0.652** real damage, one step from the
+0.7 critical threshold, was classified **NORMAL** and fired no alert at
+all.
+
+| | real damage | by cycles | spectral |
+|---|---:|---:|---:|
+| sensor with accelerated wear | 0.652 | **0.049** | 0.609 |
+| the other 9 in the test | < 0.04 | error < 0.008 | error < 0.009 |
+
+Cycle counting is **blind to accelerated wear**, and that is inherent, not
+an arithmetic bug. The simulator multiplies each passage's damage by the
+point's `taxa_desgaste` (2% of sensors are born with 8 to 20 times the
+normal rate, simulating aged catenary or an installation defect). Counting
+stress cycles there is no way to infer that factor: two points under the
+same load with the same number of passages produce the same count, whether
+or not they are degrading at different rates. And no real sensor would know
+its own point's rate.
+
+The spectral estimator got it right (0.609 against 0.652) because it reads
+the vibration noise floor, which reflects physical damage regardless of the
+rate. The project's premise held up exactly in the case it existed to
+solve. The mistake was leaving the alerting decision to the blind
+estimator.
+
+**The fix,** in `src/analise/motor.py`: a sensor's state now comes from the
+**larger** of the two damage values, the conservative reading for a system
+whose job is to warn before failure. And the divergence between the
+estimators, previously just noise, became signal: above
+`LIMIAR_DIVERGENCIA` (0.15) the point is flagged as suspected accelerated
+wear.
+
+**Validated across 150 sensors, 2,850 readings:** 3 points flagged, that is
+the same 2% the simulator creates defective, and they are exactly the 3
+with the highest real damage in the network, with no false positives. The
+official damage (the larger of the two) lands at **0.0041** mean error,
+between cycle counting's 0.0063 and the spectral 0.0036, but without the
+blind spot that let a sensor about to fail slip through.
+
 ### RUL and SNR: two more metrics, no new sensor invented
 
 Beyond raw damage, the engine now computes two metrics common in real

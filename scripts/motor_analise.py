@@ -46,6 +46,8 @@ class Estatisticas:
         self.estado_anterior: dict[str, str] = {}
         self.erros_ciclos: list[float] = []
         self.erros_espectral: list[float] = []
+        self.erros_combinado: list[float] = []
+        self.sensores_acelerados: set[str] = set()
 
     def registrar(self, avaliacao, dano_real: float | None) -> bool:
         """Retorna True se essa leitura disparou um alerta novo."""
@@ -53,6 +55,10 @@ class Estatisticas:
         if dano_real is not None:
             self.erros_ciclos.append(abs(avaliacao.dano_ciclos - dano_real))
             self.erros_espectral.append(abs(avaliacao.dano_espectral - dano_real))
+            self.erros_combinado.append(abs(avaliacao.dano - dano_real))
+
+        if avaliacao.desgaste_acelerado:
+            self.sensores_acelerados.add(avaliacao.sensor_id)
 
         anterior = self.estado_anterior.get(avaliacao.sensor_id, "NORMAL")
         disparou = avaliacao.estado != anterior and avaliacao.estado in ("ATENCAO", "CRITICO")
@@ -65,13 +71,19 @@ class Estatisticas:
         print(f"\nleituras processadas: {self.total_leituras}", file=destino)
         print(f"sensores distintos: {len(self.estado_anterior)}", file=destino)
         print(f"alertas emitidos: {self.alertas_emitidos}", file=destino)
+        if self.sensores_acelerados:
+            print(
+                f"sensores com suspeita de desgaste acelerado: {len(self.sensores_acelerados)} "
+                f"({', '.join(sorted(self.sensores_acelerados))})",
+                file=destino,
+            )
 
         if completo and self.erros_ciclos:
-            media_ciclos = sum(self.erros_ciclos) / len(self.erros_ciclos)
-            media_espectral = sum(self.erros_espectral) / len(self.erros_espectral)
+            media = lambda xs: sum(xs) / len(xs)
             print("\nvalidação contra o dano real do simulador (não usado para decidir nada acima):", file=destino)
-            print(f"  erro médio absoluto, estimativa por ciclos (Basquin/Miner): {media_ciclos:.4f}", file=destino)
-            print(f"  erro médio absoluto, estimativa espectral (FFT):           {media_espectral:.4f}", file=destino)
+            print(f"  erro médio absoluto, estimativa por ciclos (Basquin/Miner): {media(self.erros_ciclos):.4f}", file=destino)
+            print(f"  erro médio absoluto, estimativa espectral (FFT):           {media(self.erros_espectral):.4f}", file=destino)
+            print(f"  erro médio absoluto, dano oficial (maior dos dois):        {media(self.erros_combinado):.4f}", file=destino)
 
 
 def main() -> None:
@@ -123,11 +135,12 @@ def main() -> None:
 
             if disparou_alerta and not args.silencioso:
                 rul_txt = f"{avaliacao.rul_segundos:.0f}s" if avaliacao.rul_segundos is not None else "n/d"
+                marca = "  [DESGASTE ACELERADO]" if avaliacao.desgaste_acelerado else ""
                 print(
                     f"ALERTA {avaliacao.estado:8s} sensor={avaliacao.sensor_id}  "
                     f"km={avaliacao.km:.2f}  dano_ciclos={avaliacao.dano_ciclos:.3f}  "
                     f"dano_espectral={avaliacao.dano_espectral:.3f}  "
-                    f"snr={avaliacao.snr_db:.1f}dB  rul={rul_txt}",
+                    f"snr={avaliacao.snr_db:.1f}dB  rul={rul_txt}{marca}",
                     file=sys.stderr,
                 )
 
