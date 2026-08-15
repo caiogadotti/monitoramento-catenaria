@@ -374,6 +374,37 @@ cp .env.example .env   # fill in SUPABASE_DB_URL with the pooler connection stri
 python scripts/motor_analise.py --arquivo leituras.ndjson --supabase
 ```
 
+### Streamlit dashboard
+
+`app.py` is the pure visualization endpoint: it does not talk to the
+gateway or the analysis engine, it only reads what is already persisted
+in Supabase, via the REST API with the anon key
+(`src/persistencia/leitura.py`), not the Postgres connection string.
+That is a deliberate privilege separation: the anon key can only `select`
+on both tables (the RLS policy has no insert/update/delete), so even
+exposed in the Streamlit client it cannot write anything to the database.
+
+It shows, per sensor and per line position (km): cycle-based damage and
+spectral damage side by side, SNR, RUL, current state, and the fired
+alert history. A 10s cache (`st.cache_data`) avoids hitting the database
+on every user interaction without leaving the panel stuck on a stale
+snapshot.
+
+```bash
+cp .streamlit/secrets.toml.example .streamlit/secrets.toml   # already filled in, see note below
+streamlit run app.py
+```
+
+**Why the anon key ships pre-filled in the `.example`, unlike the
+Postgres connection string:** Supabase's anon key is designed to be
+public, the same pattern as a Firebase API key in a client app. Security
+does not come from hiding the key, it comes from the RLS policy behind
+it. Tested locally before documenting: brought the dashboard up,
+inserted synthetic readings directly into the database (25 sensors,
+varied states), confirmed the four KPIs, the km scatter map, the
+state pie chart, the at-risk sensor table and the per-sensor history all
+rendering with real data before deleting the test data.
+
 ---
 
 ## Current status
@@ -384,7 +415,7 @@ python scripts/motor_analise.py --arquivo leituras.ndjson --supabase
 | Ingestion gateway (Go) | **Done** |
 | Analysis engine (Python) | **Done** |
 | Persistence (Supabase) | **Done** |
-| Dashboard (Streamlit) | Planned |
+| Dashboard (Streamlit) | **Done** |
 
 ---
 
@@ -453,11 +484,13 @@ concurrency bottleneck in ingestion.
 │   │   ├── espectro.py            spectral damage estimator (FFT) + SNR
 │   │   └── motor.py               orchestrates both estimators per sensor
 │   └── persistencia/
-│       └── supabase.py            writes readings and alerts to Postgres
+│       ├── supabase.py            writes readings and alerts to Postgres
+│       └── leitura.py             reads from Supabase via REST (anon key, select only)
 ├── scripts/
 │   ├── simular_sensores.py        simulator CLI
 │   ├── motor_analise.py           analysis engine CLI
 │   └── calibrar_espectro.py       spectral estimator calibration
+├── app.py                         Streamlit dashboard
 └── docs/
 ```
 

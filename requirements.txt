@@ -1,2 +1,6 @@
 numpy>=1.26
 psycopg2-binary>=2.9
+streamlit>=1.38
+pandas>=2.2
+plotly>=5.24
+requests>=2.32

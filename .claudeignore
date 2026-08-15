@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+.pytest_cache/
+.streamlit/
+supabase/.temp/
+*.log
+*.sqlite3
+*.db
+*.csv
+.vscode/
+.idea/
+.DS_Store
+bin/
+*.exe

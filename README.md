@@ -373,6 +373,36 @@ cp .env.example .env   # preencher SUPABASE_DB_URL com a connection string do po
 python scripts/motor_analise.py --arquivo leituras.ndjson --supabase
 ```
 
+### Dashboard em Streamlit
+
+`app.py` é a ponta puramente de visualização: não fala com o gateway nem
+com o motor de análise, só lê o que já está persistido no Supabase, via
+API REST com a chave anon (`src/persistencia/leitura.py`), não a
+connection string do Postgres. É uma separação de privilégio deliberada:
+a chave anon só consegue `select` nas duas tabelas (a policy de RLS não
+inclui insert/update/delete), então mesmo exposta no cliente Streamlit
+ela não é capaz de escrever nada no banco.
+
+Mostra, por sensor e por posição na linha (km): dano por ciclos e dano
+espectral lado a lado, SNR, RUL, estado atual, e o histórico de alertas
+disparados. Cache de 10s (`st.cache_data`) evita bater no banco a cada
+interação do usuário sem deixar o painel travado num snapshot antigo.
+
+```bash
+cp .streamlit/secrets.toml.example .streamlit/secrets.toml   # já vem preenchido, ver nota abaixo
+streamlit run app.py
+```
+
+**Por que a chave anon já vem preenchida no `.example`, ao contrário da
+connection string do Postgres:** chave anon do Supabase é desenhada pra
+ser pública, o mesmo padrão de uma API key de Firebase em app cliente. A
+segurança não vem de esconder a chave, vem da política de RLS por trás
+dela. Testado localmente antes de documentar: subiu o dashboard, inseriu
+leituras sintéticas direto no banco (25 sensores, estados variados),
+confirmou os quatro KPIs, o mapa de dispersão por km, o gráfico de pizza
+por estado, a tabela de sensores em risco e o histórico por sensor
+renderizando com dado real antes de apagar o teste.
+
 ---
 
 ## Estado atual
@@ -383,7 +413,7 @@ python scripts/motor_analise.py --arquivo leituras.ndjson --supabase
 | Gateway de ingestão (Go) | **Pronto** |
 | Motor de análise (Python) | **Pronto** |
 | Persistência (Supabase) | **Pronto** |
-| Dashboard (Streamlit) | Planejado |
+| Dashboard (Streamlit) | **Pronto** |
 
 ---
 
@@ -452,11 +482,13 @@ gargalo de concorrência na ingestão.
 │   │   ├── espectro.py            estimador de dano espectral (FFT) + SNR
 │   │   └── motor.py               orquestra os dois estimadores por sensor
 │   └── persistencia/
-│       └── supabase.py            grava leituras e alertas no Postgres
+│       ├── supabase.py            grava leituras e alertas no Postgres
+│       └── leitura.py             lê do Supabase via REST (chave anon, só select)
 ├── scripts/
 │   ├── simular_sensores.py        CLI do simulador
 │   ├── motor_analise.py           CLI do motor de análise
 │   └── calibrar_espectro.py       calibração do estimador espectral
+├── app.py                         dashboard Streamlit
 └── docs/
 ```
 
