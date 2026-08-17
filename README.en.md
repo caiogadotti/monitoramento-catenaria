@@ -233,6 +233,35 @@ the two parameters this project assumes as an example. For railway
 catenary specifically, the Brazilian industry uses the AREMA manual
 alongside NBR 8800, since there is no dedicated NBR for that case.
 
+### How accelerated the accelerated regime is, measured
+
+The real published numbers I found (not specific to copper/copper-silver
+contact wire, which sits behind a paywall, but general enough to give an
+order of magnitude): real contact wire mechanical tension between 15 and
+30 kN depending on the line's speed class, and Basquin exponent $b$
+between $-0.05$ and $-0.12$ for metals in general. That became
+`TENSAO_REFERENCIA_REAL_N` and `EXPOENTE_BASQUIN_REAL` in
+`src/simulador/sensor.py`, each source cited in the code, alongside the
+accelerated values that remain the default.
+
+`scripts/comparar_regime_real.py` runs the same physics (same
+`registrar_passagem_de_trem`, same Basquin/Miner rule) with both sets of
+constants and measures how many train passages each regime needs to
+cross the critical threshold:
+
+| Regime | Passages to critical | At 120 trains/day |
+|---|---:|---:|
+| Accelerated (demo) | 42 | 0.3 days |
+| Real (cited) | 15,291 | **127 days (~4 months)** |
+
+**Acceleration factor: 364x.** The real regime's number lands in the
+right ballpark for real railway infrastructure fatigue (months to years,
+not minutes), which gives a bit more confidence that the model's physics
+is qualitatively sound even with example parameters. It is still not a
+validation (the exact real-material $\sigma'_f$/$b$ are missing, behind a
+paywall), but it is the difference between "made-up number" and "number
+aligned with the published order of magnitude."
+
 ---
 
 ## The analysis engine

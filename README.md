@@ -233,6 +233,35 @@ dois parâmetros que este projeto assume por exemplo. Para catenária
 ferroviária especificamente, o setor no Brasil usa o manual da AREMA
 junto com a NBR 8800, já que não existe uma NBR dedicada a esse caso.
 
+### Quanto o regime acelerado está acelerado, medido
+
+Os números reais publicados que encontrei (não específicos de fio de
+contato de cobre/cobre-prata, que fica atrás de paywall, mas gerais o
+suficiente pra dar ordem de grandeza): tensão mecânica real de fio de
+contato entre 15 e 30 kN dependendo da classe de velocidade da linha, e
+expoente de Basquin $b$ entre $-0{,}05$ e $-0{,}12$ para metais em geral.
+Isso virou `TENSAO_REFERENCIA_REAL_N` e `EXPOENTE_BASQUIN_REAL` em
+`src/simulador/sensor.py`, com a fonte de cada um citada no código, ao
+lado dos valores acelerados que continuam sendo o padrão.
+
+`scripts/comparar_regime_real.py` roda a mesma física (mesmo
+`registrar_passagem_de_trem`, mesma regra de Basquin/Miner) com os dois
+conjuntos de constante e mede quantas passagens de trem cada regime
+precisa para cruzar o limiar crítico:
+
+| Regime | Passagens até crítico | Em 120 trens/dia |
+|---|---:|---:|
+| Acelerado (demo) | 42 | 0,3 dias |
+| Real (citado) | 15.291 | **127 dias (~4 meses)** |
+
+**Fator de aceleração: 364x.** O número do regime real cai na faixa certa
+de fadiga de infraestrutura ferroviária real (meses a anos, não minutos),
+o que dá um pouco mais de confiança de que a física do modelo está
+qualitativamente correta, mesmo com os parâmetros de exemplo. Ainda não é
+uma validação (faltam os $\sigma'_f$/$b$ exatos do material real, atrás
+de paywall), mas é a diferença entre "número inventado" e "número
+alinhado com a ordem de grandeza publicada".
+
 ---
 
 ## O motor de análise

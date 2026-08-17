@@ -26,8 +26,38 @@ FREQUENCIA_ESTRUTURAL_HZ = 18.0  # ressonância típica de cabo tensionado
 FREQUENCIA_REDE_HZ = 60.0  # acoplamento da rede elétrica de tração
 
 # regra de Basquin simplificada: ciclos_ate_falha = (tensao_ref / amplitude_ciclo) ** expoente
+#
+# Os dois valores abaixo são acelerados de propósito, não são o dado real
+# de catálogo. Ver TENSAO_REFERENCIA_REAL_N e EXPOENTE_BASQUIN_REAL logo
+# abaixo para os números reais publicados e por que não são o padrão.
 TENSAO_REFERENCIA_N = 14000.0
 EXPOENTE_BASQUIN = 6.0
+
+# --- Valores reais, citados, para referência e para o experimento de
+# --- comparação (scripts/comparar_regime_real.py). Não são o padrão
+# --- porque, usados de fato, o dano leva dias reais para evoluir, o que
+# --- inviabiliza a demonstração interativa deste projeto.
+#
+# TENSAO_REFERENCIA_REAL_N: tensão mecânica real de fio de contato fica
+# entre 15 e 30 kN, dependendo da classe de velocidade da linha
+# (Railway Energy: Overhead Contact Line System, RailBaltica Design
+# Manual; He, Guo & Chen, "Numerical study of contact wire tension
+# affecting dropper stress of a catenary system", Advances in Mechanical
+# Engineering, 2021). 20 kN é um valor representativo de linha
+# intercidades (nem o extremo de alta velocidade acima de 250km/h, nem
+# o mínimo de linha convencional lenta).
+TENSAO_REFERENCIA_REAL_N = 20000.0
+
+# EXPOENTE_BASQUIN_REAL: o expoente de Basquin $b$ para metais fica entre
+# -0.05 e -0.12 (faixa estabelecida na literatura de fadiga de
+# materiais). Com EXPOENTE_BASQUIN = -1/b neste código, isso equivale a
+# um expoente entre 8.3 e 20. Usamos 10 (b ≈ -0.10, meio da faixa) como
+# valor representativo, não específico de liga de cobre: não encontrei
+# acesso público ao $\sigma'_f$ e $b$ medidos especificamente para fio
+# de contato Cu-Mg/Cu-Ag (haveria em Yang et al., "Bending fatigue life
+# evaluation of Cu-Mg alloy contact wire", Int. J. Precis. Eng. Manuf.,
+# 2014, atrás de paywall no momento em que isso foi escrito).
+EXPOENTE_BASQUIN_REAL = 10.0
 
 LIMIAR_ATENCAO = 0.3
 LIMIAR_CRITICO = 0.7
@@ -75,7 +105,12 @@ class PontoSensor:
             return "ATENCAO"
         return "NORMAL"
 
-    def registrar_passagem_de_trem(self, amplitude_tensao_n: float) -> None:
+    def registrar_passagem_de_trem(
+        self,
+        amplitude_tensao_n: float,
+        tensao_referencia_n: float = TENSAO_REFERENCIA_N,
+        expoente_basquin: float = EXPOENTE_BASQUIN,
+    ) -> None:
         """Cada passagem gera um ciclo de tensão que consome uma fração da vida do cabo.
 
         `amplitude_tensao_n` é o pico de tensão mecânica acima da tensão base durante
@@ -83,9 +118,14 @@ class PontoSensor:
         dano por ciclo vem da regra de Basquin: quanto maior a amplitude relativa à
         tensão de referência, menos ciclos o cabo aguenta até a falha, logo mais dano
         por ciclo.
+
+        `tensao_referencia_n` e `expoente_basquin` têm os valores acelerados da
+        demo como padrão; passar `TENSAO_REFERENCIA_REAL_N` e
+        `EXPOENTE_BASQUIN_REAL` roda a mesma física com os números reais
+        citados no topo deste módulo (ver `scripts/comparar_regime_real.py`).
         """
-        razao = amplitude_tensao_n / TENSAO_REFERENCIA_N
-        ciclos_ate_falha = max(1.0, razao**-EXPOENTE_BASQUIN)
+        razao = amplitude_tensao_n / tensao_referencia_n
+        ciclos_ate_falha = max(1.0, razao**-expoente_basquin)
         dano_por_ciclo = (1.0 / ciclos_ate_falha) * self.taxa_desgaste
         self._dano_acumulado += dano_por_ciclo
 
