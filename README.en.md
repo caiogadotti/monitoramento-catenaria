@@ -342,6 +342,47 @@ official damage (the larger of the two) lands at **0.0041** mean error,
 between cycle counting's 0.0063 and the spectral 0.0036, but without the
 blind spot that let a sensor about to fail slip through.
 
+### The flapping alert, and how smoothing nearly cost a detection
+
+Running the fix above across the whole network, one of the defective
+sensors entered and left the alert state three times in 19 readings
+(`nnnnnnnnnnnnnnnAnnA`), firing a duplicate alert for the same point. The
+cause is that `estimar_dano_espectral` measures the noise of a 1 second
+window and carries that noise's variance: a sensor with damage near the
+threshold crosses the line both ways on every reading. In real operation
+that is alarm fatigue.
+
+The answer is a per sensor moving average (`SuavizadorEspectral`), and the
+window size came from a measured sweep, not a guess
+(`scripts/calibrar_suavizacao.py`):
+
+| windows | mean error | sensors alerted | flaps |
+|---:|---:|---:|---:|
+| 1 (no smoothing) | 0.0041 | 2 | 2 |
+| 2 | 0.0040 | 2 | 2 |
+| **3** | **0.0040** | **2** | **0** |
+| 5 | 0.0044 | 1 | 0 |
+| 12 | 0.0056 | 0 | 0 |
+
+The first guess had been 5, and the sweep showed 5 **loses a defective
+sensor**: the average dilutes the noise peak below the threshold. At 12 the
+engine alerts on nobody. 3 is the smallest value that zeroes the flapping
+and, as it happens, also the lowest error.
+
+**The side effect smoothing brought.** Smoothing compresses exactly the
+peaks that reveal accelerated wear. The weakest defective sensor's peak
+divergence dropped from 0.188 to 0.069, brushing against the healthy ones
+(0.066), and it stopped being flagged. The fix was to use the spectral
+signal two ways according to what each needs: **state** comes from the
+smoothed value, which wants stability, and **divergence** is measured on
+the raw value, which wants sensitivity. On the raw signal that sensor sits
+at 0.188 against 0.059 for the worst healthy one, a comfortable margin.
+
+**Final result on the 150 sensor network:** 2 state changes in total, that
+is exactly the two legitimate transitions and no flapping, all 3 defective
+points flagged, and **0.0040** error on the official damage, the best among
+every configuration tested.
+
 ### RUL and SNR: two more metrics, no new sensor invented
 
 Beyond raw damage, the engine now computes two metrics common in real

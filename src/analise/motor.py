@@ -25,13 +25,30 @@ avisar antes da falha.
 A divergência entre os dois estimadores deixou de ser ruído e virou sinal:
 ela é a assinatura de desgaste acelerado, e por isso vira um campo próprio
 na avaliação.
+
+**Por que o sinal espectral é usado de duas formas aqui.** O estado sai do
+valor suavizado por média móvel (ver `SuavizadorEspectral`), porque a
+estimativa por janela isolada oscila em torno do limiar e gerava alerta
+repetido para o mesmo ponto. Já a divergência é medida no valor **cru**.
+Essa separação não é gratuita, saiu de medição: suavizar comprime os picos
+que denunciam desgaste acelerado, e num teste de 150 sensores a divergência
+máxima do sensor defeituoso mais fraco caía de 0.188 para 0.069, ficando
+indistinguível dos saudáveis (0.066). No sinal cru esse mesmo sensor fica
+em 0.188 contra 0.059 do pior saudável, uma margem confortável. Cada uso
+fica com a versão do sinal em que ele rende: o alerta quer estabilidade, a
+detecção de desgaste acelerado quer sensibilidade.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.analise.espectro import estimar_dano_espectral, estimar_snr_db
+from src.analise.espectro import (
+    JANELAS_SUAVIZACAO,
+    SuavizadorEspectral,
+    estimar_dano_espectral,
+    estimar_snr_db,
+)
 from src.analise.fadiga import AcumuladorDano, classificar_estado
 
 # Acima dessa diferença entre as duas estimativas, o ponto é tratado como
@@ -53,6 +70,7 @@ class Avaliacao:
     snr_db: float
     rul_segundos: float | None
     desgaste_acelerado: bool
+    dano_espectral_bruto: float
 
     @property
     def dano(self) -> float:
@@ -61,20 +79,32 @@ class Avaliacao:
 
     @property
     def divergencia(self) -> float:
-        return abs(self.dano_ciclos - self.dano_espectral)
+        """Distância entre os dois estimadores, medida no sinal espectral cru.
+
+        Usa o valor sem suavização de propósito, ver a nota sobre os dois
+        usos do sinal espectral na docstring do módulo.
+        """
+        return abs(self.dano_ciclos - self.dano_espectral_bruto)
 
 
 class MotorAnalise:
-    def __init__(self) -> None:
+    def __init__(self, janelas_suavizacao: int = JANELAS_SUAVIZACAO) -> None:
         self._acumuladores: dict[str, AcumuladorDano] = {}
+        self._suavizadores: dict[str, SuavizadorEspectral] = {}
+        self._janelas_suavizacao = janelas_suavizacao
 
     def processar_leitura(self, leitura: dict) -> Avaliacao:
         sensor_id = leitura["sensor_id"]
         acumulador = self._acumuladores.setdefault(sensor_id, AcumuladorDano(sensor_id))
         acumulador.processar(leitura["tensao_mecanica_n"], leitura.get("timestamp"))
 
+        suavizador = self._suavizadores.setdefault(
+            sensor_id, SuavizadorEspectral(self._janelas_suavizacao)
+        )
+
         vibracao = leitura["vibracao"]
-        dano_espectral = estimar_dano_espectral(vibracao)
+        dano_espectral_bruto = estimar_dano_espectral(vibracao)
+        dano_espectral = suavizador.suavizar(dano_espectral_bruto)
         dano_ciclos = acumulador.dano_acumulado
 
         return Avaliacao(
@@ -86,5 +116,6 @@ class MotorAnalise:
             ciclos_contados=acumulador.ciclos_contados,
             snr_db=estimar_snr_db(vibracao),
             rul_segundos=acumulador.rul_segundos(),
-            desgaste_acelerado=abs(dano_ciclos - dano_espectral) >= LIMIAR_DIVERGENCIA,
+            desgaste_acelerado=abs(dano_ciclos - dano_espectral_bruto) >= LIMIAR_DIVERGENCIA,
+            dano_espectral_bruto=dano_espectral_bruto,
         )

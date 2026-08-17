@@ -14,6 +14,8 @@ piso de ruído) como indício independente de desgaste. Nunca lê o
 
 from __future__ import annotations
 
+from collections import deque
+
 import numpy as np
 
 from src.simulador.sensor import FREQUENCIA_ESTRUTURAL_HZ, FREQUENCIA_REDE_HZ, TAXA_AMOSTRAGEM_HZ
@@ -22,6 +24,18 @@ LARGURA_EXCLUSAO_HZ = 3.0
 
 RUIDO_BASE = 0.05
 RUIDO_POR_DANO = 0.6
+
+# Quantas janelas de vibração entram na média móvel por sensor. Cada
+# estimativa isolada mede o ruído de 1 segundo de sinal e carrega a
+# variância própria desse ruído, o que fazia sensores perto do limiar
+# entrar e sair do estado de alerta a cada leitura.
+#
+# 3 saiu de varredura empírica (scripts/calibrar_suavizacao.py), não de
+# chute: é o menor valor que zera a oscilação, e por acaso também o de
+# menor erro. Janelas maiores pioram nos dois eixos que importam, a
+# partir de 5 o motor começa a PERDER sensor defeituoso (a média dilui o
+# pico de ruído abaixo do limiar) e em 12 não alerta mais ninguém.
+JANELAS_SUAVIZACAO = 3
 
 # piso_de_potencia ≈ K_POTENCIA * intensidade_ruido²
 #
@@ -70,6 +84,28 @@ def estimar_dano_espectral(vibracao: list[float]) -> float:
     intensidade_estimada = (max(piso, 0.0) / K_POTENCIA) ** 0.5
     dano_estimado = (intensidade_estimada - RUIDO_BASE) / RUIDO_POR_DANO
     return float(np.clip(dano_estimado, 0.0, 1.0))
+
+
+class SuavizadorEspectral:
+    """Média móvel das últimas N estimativas espectrais de um sensor.
+
+    `estimar_dano_espectral` é puro: uma janela de vibração entra, um valor
+    sai, sem memória. Isso é bom para testar e calibrar, mas o valor
+    isolado oscila junto com o ruído que ele mede. Um sensor cujo dano real
+    esteja perto do limiar de alerta cruza a fronteira para cima e para
+    baixo a cada leitura, gerando alerta repetido para o mesmo ponto.
+
+    Esta classe guarda a janela deslizante por sensor, fora da função pura.
+    O preço é atraso: a média só reflete uma mudança de regime depois de
+    algumas leituras.
+    """
+
+    def __init__(self, tamanho: int = JANELAS_SUAVIZACAO) -> None:
+        self._amostras: deque[float] = deque(maxlen=tamanho)
+
+    def suavizar(self, estimativa: float) -> float:
+        self._amostras.append(estimativa)
+        return sum(self._amostras) / len(self._amostras)
 
 
 def estimar_snr_db(vibracao: list[float]) -> float:

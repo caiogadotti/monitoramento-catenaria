@@ -339,6 +339,47 @@ dos dois) fica em **0.0041** de erro médio, entre os 0.0063 da contagem de
 ciclos e os 0.0036 do espectral, mas sem o ponto cego que deixava passar o
 sensor prestes a falhar.
 
+### O alerta que piscava, e por que suavizar quase custou uma detecção
+
+Rodando a correção acima na rede inteira, um dos sensores defeituosos
+entrou e saiu do estado de alerta três vezes em 19 leituras
+(`nnnnnnnnnnnnnnnAnnA`), disparando alerta duplicado para o mesmo ponto. A
+causa é que `estimar_dano_espectral` mede o ruído de uma janela de 1
+segundo e carrega a variância desse ruído: um sensor com dano perto do
+limiar cruza a fronteira para os dois lados a cada leitura. Em operação
+real isso é fadiga de alarme.
+
+A saída é média móvel por sensor (`SuavizadorEspectral`), e o tamanho da
+janela saiu de varredura medida, não de chute
+(`scripts/calibrar_suavizacao.py`):
+
+| janelas | erro médio | sensores alertados | oscilações |
+|---:|---:|---:|---:|
+| 1 (sem suavizar) | 0.0041 | 2 | 2 |
+| 2 | 0.0040 | 2 | 2 |
+| **3** | **0.0040** | **2** | **0** |
+| 5 | 0.0044 | 1 | 0 |
+| 12 | 0.0056 | 0 | 0 |
+
+O primeiro palpite tinha sido 5, e a varredura mostrou que 5 **perde um
+sensor defeituoso**: a média dilui o pico de ruído abaixo do limiar. Com
+12 o motor não alerta mais ninguém. 3 é o menor valor que zera a oscilação
+e, por acaso, também o de menor erro.
+
+**O efeito colateral que a suavização trouxe.** Suavizar comprime justo os
+picos que denunciam desgaste acelerado. A divergência máxima do sensor
+defeituoso mais fraco caiu de 0.188 para 0.069, encostando nos saudáveis
+(0.066), e ele deixou de ser sinalizado. A correção foi usar o sinal
+espectral de duas formas conforme a necessidade de cada uma: o **estado**
+sai do valor suavizado, que quer estabilidade, e a **divergência** é medida
+no valor cru, que quer sensibilidade. No sinal cru esse sensor fica em
+0.188 contra 0.059 do pior saudável, uma margem folgada.
+
+**Resultado final na rede de 150 sensores:** 2 mudanças de estado no total,
+ou seja exatamente as duas transições legítimas e nenhuma oscilação, os 3
+pontos defeituosos sinalizados, e erro de **0.0040** no dano oficial, o
+melhor entre todas as configurações testadas.
+
 ### RUL e SNR: duas métricas a mais, sem inventar sensor novo
 
 Além do dano bruto, o motor calcula duas métricas comuns em manutenção
