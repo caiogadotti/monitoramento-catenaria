@@ -568,10 +568,66 @@ gargalo de concorrência na ingestão.
 ├── scripts/
 │   ├── simular_sensores.py        CLI do simulador
 │   ├── motor_analise.py           CLI do motor de análise
-│   └── calibrar_espectro.py       calibração do estimador espectral
+│   ├── calibrar_espectro.py       calibração do estimador espectral
+│   └── treinar_estimador_ml.py    compara rede neural vs. estimador físico
 ├── app.py                         dashboard Streamlit
 └── docs/
 ```
+
+---
+
+## Onde este projeto se encaixa no estado da arte
+
+A rede de sensores fixos ao longo da via que este projeto simula não é
+como a indústria resolve monitoramento de catenária hoje. O estado da
+arte real (ver referências abaixo, especialmente o trabalho de 2023 sobre
+pantógrafo instrumentado) mede o problema de outro jeito: sensor **móvel**,
+embarcado na cabeça do pantógrafo, captando aceleração e força de contato
+a cada passagem de trem, não um posto fixo a cada trecho da via. Faz
+sentido: instrumentar cada metro de catenária com sensor fixo custaria
+uma fortuna; instrumentar o pantógrafo, que já passa em toda parte da
+linha por natureza, resolve a mesma cobertura por uma fração do preço.
+
+Isso não torna o projeto defasado, torna a arquitetura de sensor uma
+simplificação deliberada, do mesmo jeito que os valores de fadiga já são
+(ver "A ressalva honesta" acima). O que o projeto demonstra continua de
+pé independente de onde o sensor mora fisicamente: ingestão concorrente
+em escala, as duas regras de fadiga aplicadas de verdade, e um estimador
+espectral que pega o caso que a contagem de ciclos sozinha não vê. Um
+projeto com sensor embarcado teria o mesmo desafio de concorrência e a
+mesma matemática, só mudaria o formato de entrada do dado.
+
+### Experimento: rede neural venceria o estimador físico?
+
+Não dá pra comparar com a rede neural da literatura real (dataset
+proprietário, verdade diferente), mas dá pra fazer a pergunta de um jeito
+honesto: treinando uma rede neural no **mesmo simulador**, com a **mesma
+verdade** que usamos pra medir o estimador espectral, ela ganharia dele?
+
+`scripts/treinar_estimador_ml.py` treina um MLP pequeno
+(`sklearn.neural_network.MLPRegressor`, duas camadas ocultas) recebendo o
+espectro de potência bruto inteiro, sem o corte manual dos picos
+conhecidos que `espectro.py` faz, e mede o erro num conjunto reservado
+nunca visto no treino, a mesma métrica.
+
+**Resultado, testado em três pares de sementes diferentes:**
+
+| Estimador | Erro médio absoluto |
+|---|---:|
+| Espectral (físico, 1 parâmetro calibrado) | **0.025 a 0.027** |
+| Rede neural (MLP, aprendida) | 0.043 a 0.069 |
+
+**O estimador físico venceu nas três vezes**, por um fator de 1.6x a 2.8x.
+A explicação não é que rede neural seja pior de forma geral, é que ela
+está competindo em desvantagem aqui: o estimador espectral tem **um único
+parâmetro livre** (`K_POTENCIA`, ajustado por mínimos quadrados a partir
+de uma relação física já conhecida, `piso ≈ k·intensidade²`), enquanto a
+rede tem que aprender essa mesma relação do zero a partir de 600 amostras
+de treino espalhadas num espectro de mais de 100 dimensões, sem saber de
+antemão que só duas frequências do sinal são ruído (a informação que o
+estimador físico já embute). Rede neural ganha quando o dado real de
+treino é abundante e a física por trás é difícil de escrever à mão, esse
+não é esse caso.
 
 ---
 

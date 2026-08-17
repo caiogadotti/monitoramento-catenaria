@@ -572,10 +572,69 @@ concurrency bottleneck in ingestion.
 ├── scripts/
 │   ├── simular_sensores.py        simulator CLI
 │   ├── motor_analise.py           analysis engine CLI
-│   └── calibrar_espectro.py       spectral estimator calibration
+│   ├── calibrar_espectro.py       spectral estimator calibration
+│   └── treinar_estimador_ml.py    neural net vs. physical estimator comparison
 ├── app.py                         Streamlit dashboard
 └── docs/
 ```
+
+---
+
+## Where this project fits in the state of the art
+
+The fixed sensor network along the track that this project simulates is
+not how the industry solves catenary monitoring today. The real state of
+the art (see references below, especially the 2023 work on instrumented
+pantographs) measures the problem a different way: a **mobile** sensor,
+mounted on the pantograph head, capturing acceleration and contact force
+on every train passage, not a fixed post at every stretch of track. That
+makes sense: instrumenting every meter of catenary with a fixed sensor
+would cost a fortune; instrumenting the pantograph, which already passes
+every part of the line by nature, gets the same coverage for a fraction
+of the price.
+
+That does not make the project outdated, it makes the sensor architecture
+a deliberate simplification, the same way the fatigue values already are
+(see "The honest caveat" above). What the project demonstrates still
+stands regardless of where the sensor physically lives: concurrent
+ingestion at scale, the two fatigue rules applied for real, and a
+spectral estimator that catches the case cycle counting alone misses. A
+project with an onboard sensor would face the same concurrency challenge
+and the same math, only the input data format would change.
+
+### Experiment: would a neural network beat the physical estimator?
+
+There is no way to compare against the neural network from the real
+literature (proprietary dataset, different ground truth), but the
+question can be asked honestly a different way: training a neural
+network on the **same simulator**, against the **same ground truth**
+used to measure the spectral estimator, would it win?
+
+`scripts/treinar_estimador_ml.py` trains a small MLP
+(`sklearn.neural_network.MLPRegressor`, two hidden layers) fed the entire
+raw power spectrum, without the manual cut of known peaks that
+`espectro.py` performs, and measures the error on a held-out set never
+seen in training, the same metric.
+
+**Result, tested across three different seed pairs:**
+
+| Estimator | Mean absolute error |
+|---|---:|
+| Spectral (physical, 1 calibrated parameter) | **0.025 to 0.027** |
+| Neural network (MLP, learned) | 0.043 to 0.069 |
+
+**The physical estimator won all three times**, by a factor of 1.6x to
+2.8x. The explanation is not that neural networks are worse in general,
+it is that this one is competing at a disadvantage here: the spectral
+estimator has **a single free parameter** (`K_POTENCIA`, fit by least
+squares from an already known physical relationship,
+`floor ≈ k·intensity²`), while the network has to learn that same
+relationship from scratch out of 600 training samples spread across a
+spectrum with over 100 dimensions, with no prior knowledge that only two
+frequencies in the signal are noise (information the physical estimator
+already embeds). Neural networks win when real training data is
+plentiful and the underlying physics is hard to write by hand, this is
+not that case.
 
 ---
 
