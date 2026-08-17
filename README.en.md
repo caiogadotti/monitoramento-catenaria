@@ -473,6 +473,8 @@ alert history. A 10s cache (`st.cache_data`) avoids hitting the database
 on every user interaction without leaving the panel stuck on a stale
 snapshot.
 
+![Line map, kilometer by kilometer: each point is a sensor, height is the official damage, two points show up flagged as attention](docs/screenshots/mapa_da_linha.png)
+
 ```bash
 cp .streamlit/secrets.toml.example .streamlit/secrets.toml   # already filled in, see note below
 streamlit run app.py

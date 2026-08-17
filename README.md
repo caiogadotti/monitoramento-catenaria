@@ -469,6 +469,8 @@ espectral lado a lado, SNR, RUL, estado atual, e o histórico de alertas
 disparados. Cache de 10s (`st.cache_data`) evita bater no banco a cada
 interação do usuário sem deixar o painel travado num snapshot antigo.
 
+![Mapa da linha, quilômetro a quilômetro: cada ponto é um sensor, a altura é o dano oficial, dois pontos aparecem destacados em atenção](docs/screenshots/mapa_da_linha.png)
+
 ```bash
 cp .streamlit/secrets.toml.example .streamlit/secrets.toml   # já vem preenchido, ver nota abaixo
 streamlit run app.py
