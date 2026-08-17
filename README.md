@@ -575,6 +575,60 @@ gargalo de concorrência na ingestão.
 
 ---
 
+## Referências
+
+Este projeto simplifica bastante o problema real (ver "A ressalva
+honesta" acima), mas as duas regras de fadiga e a ideia de detecção via
+vibração não são inventadas, vêm de trabalho publicado. Pra quem quiser
+ir na fonte:
+
+**As duas regras de fadiga que o motor implementa:**
+
+- Basquin, O. H. (1910). *The Exponential Law of Endurance Tests*.
+  American Society for Testing and Materials Proceedings, Vol. 10, pp.
+  625-630. A curva $\sigma_a = \sigma'_f(2N_f)^b$ que
+  `src/simulador/sensor.py` usa vem daqui.
+- Miner, M. A. (1945). *Cumulative Damage in Fatigue*. Journal of Applied
+  Mechanics, 12(3), A159-A164.
+  [DOI: 10.1115/1.4009458](https://doi.org/10.1115/1.4009458). A regra de
+  soma linear de dano por ciclo (`AcumuladorDano._registrar_ciclo`) é
+  essa.
+
+**Estimar fadiga a partir só de vibração**, sem instrumentar o ponto
+inteiro, é linha de pesquisa ativa, não recurso deste projeto:
+
+- Papadimitriou, C., Fritzen, C.-P., Kraemer, P., & Ntotsios, E. (2011).
+  *Fatigue predictions in entire body of metallic structures from a
+  limited number of vibration sensors using Kalman filtering*. Structural
+  Control and Health Monitoring, 18(5), 554-573.
+  [doi.org/10.1002/stc.395](https://onlinelibrary.wiley.com/doi/10.1002/stc.395).
+  Mesma ideia central do motor deste projeto (Basquin/Miner alimentado só
+  por sensores de vibração), aplicada com Kalman filter em vez de FFT.
+
+**Separar picos conhecidos do resto do espectro via FFT** é técnica
+padrão de diagnóstico de vibração industrial, coberta em:
+
+- Lin, H.-C., Ye, Y.-C., Huang, B.-J., & Su, J.-L. (2016). *Bearing
+  vibration detection and analysis using enhanced fast Fourier transform
+  algorithm*. Advances in Mechanical Engineering, 8(10).
+  [doi.org/10.1177/1687814016675080](https://journals.sagepub.com/doi/full/10.1177/1687814016675080).
+
+**Monitoramento real de catenária** (o problema de engenharia por trás
+deste projeto, resolvido hoje com pantógrafo instrumentado e câmeras, não
+com uma rede de sensores fixos como aqui):
+
+- Ritzberger, D., et al. (2023). *Assessment of catenary condition
+  monitoring by means of pantograph head acceleration and Artificial
+  Neural Networks*. Mechanical Systems and Signal Processing.
+  [ScienceDirect](https://www.sciencedirect.com/science/article/abs/pii/S0888327023006052).
+- *Railway Catenary Condition Monitoring: A Systematic Mapping of Recent
+  Research* (2024). Sensors, 24(3), 1023.
+  [MDPI, acesso aberto](https://www.mdpi.com/1424-8220/24/3/1023). Bom
+  ponto de partida pra ver o estado da arte inteiro de uma vez.
+- *A Non-Intrusive Monitoring System on Train Pantographs for the
+  Maintenance of Overhead Contact Lines* (2023).
+  [PMC, acesso aberto](https://pmc.ncbi.nlm.nih.gov/articles/PMC10536569/).
+
 ## Créditos
 
 **Disciplina:** Laboratório Computacional de Aprendizado de Máquina (LCML), 2026/2
