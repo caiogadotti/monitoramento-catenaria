@@ -5,6 +5,8 @@ pandas>=2.2
 plotly>=5.24
 requests>=2.32
 
-# só para scripts/treinar_estimador_ml.py (experimento comparativo, não faz
-# parte do pipeline principal)
+# usado pelo terceiro estimador (rede neural, puramente comparativo, ver
+# src/analise/aprendizado.py) no motor de análise e no dashboard. Sem
+# ela instalada o pipeline principal continua funcionando: dano_ml vira
+# NaN/NULL em vez de quebrar, ver estimar_dano_ml().
 scikit-learn>=1.4
