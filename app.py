@@ -439,6 +439,33 @@ DICIONARIO = [
         "chiado que aumenta. Também serve para saber se dá para confiar na medição, já que via "
         "eletrificada tem muita interferência.",
     ),
+    (
+        "Rede neural", "terceira opinião, só informativa",
+        "Uma rede neural pequena treinada nos mesmos dados usados para calibrar o estimador "
+        "espectral, tentando aprender sozinha a relação entre vibração e dano. Aparece nos cartões "
+        "de sensor por comparação, mas <strong>não decide o estado nem o alerta</strong>: testamos "
+        "e o estimador espectral erra menos (seção \"Rede neural vs. estimador físico\" mais abaixo "
+        "explica o porquê).",
+    ),
+    (
+        "Rede neural vs. estimador físico", "por que o físico venceu",
+        "Escondemos uma fatia de dado que nenhum dos dois estimadores viu antes, e medimos o erro "
+        "de cada um contra a verdade conhecida daquele dado. O estimador espectral tem só "
+        "<strong>1 número pra calibrar</strong>, porque a fórmula que liga potência do ruído a dano "
+        "já é conhecida. A rede neural tem que aprender essa relação inteira do zero, com pouco "
+        "dado de treino, o que é mais difícil. Não significa que rede neural perde sempre, "
+        "significa que ela precisa de bem mais dado pra competir com um modelo físico bom.",
+    ),
+    (
+        "Regime acelerado vs. regime real", "o quanto o relógio está adiantado",
+        "Roda a mesma fórmula de fadiga duas vezes: uma com as constantes desta demonstração "
+        "(propositalmente exageradas pra dano aparecer em minutos), outra com números reais "
+        "publicados de tensão de fio de contato e de resistência à fadiga de metal. O resultado é "
+        "quantas passagens de trem cada regime leva até o limiar crítico, e o <strong>fator de "
+        "aceleração</strong> é a razão entre os dois. Não é erro do modelo, é a escala de tempo "
+        "comprimida de propósito pra dar pra testar o projeto numa sessão de trabalho em vez de "
+        "esperar meses.",
+    ),
 ]
 
 
