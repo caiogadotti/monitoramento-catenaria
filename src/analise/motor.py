@@ -43,6 +43,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from src.analise.aprendizado import estimar_dano_ml
 from src.analise.espectro import (
     JANELAS_SUAVIZACAO,
     SuavizadorEspectral,
@@ -71,6 +72,15 @@ class Avaliacao:
     rul_segundos: float | None
     desgaste_acelerado: bool
     dano_espectral_bruto: float
+    dano_ml: float
+    """Terceira estimativa, por rede neural (ver src/analise/aprendizado.py).
+
+    Puramente comparativa: não entra no cálculo de `estado` nem de
+    `desgaste_acelerado`, que continuam vindo só de ciclos/espectral (o
+    experimento documentado no README mostrou o estimador físico vencendo
+    a rede treinada nos mesmos dados, então não há motivo pra trocar a
+    decisão de alerta por ele). NaN se scikit-learn não estiver instalado.
+    """
 
     @property
     def dano(self) -> float:
@@ -118,4 +128,5 @@ class MotorAnalise:
             rul_segundos=acumulador.rul_segundos(),
             desgaste_acelerado=abs(dano_ciclos - dano_espectral_bruto) >= LIMIAR_DIVERGENCIA,
             dano_espectral_bruto=dano_espectral_bruto,
+            dano_ml=estimar_dano_ml(vibracao, leitura["tensao_mecanica_n"], leitura.get("temperatura_c", 25.0)),
         )

@@ -47,6 +47,7 @@ class Estatisticas:
         self.erros_ciclos: list[float] = []
         self.erros_espectral: list[float] = []
         self.erros_combinado: list[float] = []
+        self.erros_ml: list[float] = []
         self.sensores_acelerados: set[str] = set()
 
     def registrar(self, avaliacao, dano_real: float | None) -> bool:
@@ -56,6 +57,8 @@ class Estatisticas:
             self.erros_ciclos.append(abs(avaliacao.dano_ciclos - dano_real))
             self.erros_espectral.append(abs(avaliacao.dano_espectral - dano_real))
             self.erros_combinado.append(abs(avaliacao.dano - dano_real))
+            if avaliacao.dano_ml == avaliacao.dano_ml:  # não é NaN
+                self.erros_ml.append(abs(avaliacao.dano_ml - dano_real))
 
         if avaliacao.desgaste_acelerado:
             self.sensores_acelerados.add(avaliacao.sensor_id)
@@ -84,6 +87,8 @@ class Estatisticas:
             print(f"  erro médio absoluto, estimativa por ciclos (Basquin/Miner): {media(self.erros_ciclos):.4f}", file=destino)
             print(f"  erro médio absoluto, estimativa espectral (FFT):           {media(self.erros_espectral):.4f}", file=destino)
             print(f"  erro médio absoluto, dano oficial (maior dos dois):        {media(self.erros_combinado):.4f}", file=destino)
+            if self.erros_ml:
+                print(f"  erro médio absoluto, rede neural (comparativo, não decide nada): {media(self.erros_ml):.4f}", file=destino)
 
 
 def main() -> None:
@@ -136,10 +141,11 @@ def main() -> None:
             if disparou_alerta and not args.silencioso:
                 rul_txt = f"{avaliacao.rul_segundos:.0f}s" if avaliacao.rul_segundos is not None else "n/d"
                 marca = "  [DESGASTE ACELERADO]" if avaliacao.desgaste_acelerado else ""
+                dano_ml_txt = f"{avaliacao.dano_ml:.3f}" if avaliacao.dano_ml == avaliacao.dano_ml else "n/d"
                 print(
                     f"ALERTA {avaliacao.estado:8s} sensor={avaliacao.sensor_id}  "
                     f"km={avaliacao.km:.2f}  dano_ciclos={avaliacao.dano_ciclos:.3f}  "
-                    f"dano_espectral={avaliacao.dano_espectral:.3f}  "
+                    f"dano_espectral={avaliacao.dano_espectral:.3f}  dano_ml={dano_ml_txt}  "
                     f"snr={avaliacao.snr_db:.1f}dB  rul={rul_txt}{marca}",
                     file=sys.stderr,
                 )
@@ -159,6 +165,7 @@ def main() -> None:
                     avaliacao.ciclos_contados,
                     avaliacao.dano_espectral_bruto,
                     avaliacao.desgaste_acelerado,
+                    None if avaliacao.dano_ml != avaliacao.dano_ml else avaliacao.dano_ml,  # NaN -> NULL
                 ))
                 if len(lote_leituras) >= args.lote_supabase:
                     _flush_lote()

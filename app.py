@@ -22,6 +22,16 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from src.persistencia.leitura import buscar_alertas, buscar_leituras
+from src.analise.aprendizado import coletar_dataset_sintetico
+from src.analise.espectro import estimar_dano_espectral
+from src.simulador.sensor import (
+    EXPOENTE_BASQUIN,
+    EXPOENTE_BASQUIN_REAL,
+    LIMIAR_CRITICO as LIMIAR_CRITICO_SIM,
+    TENSAO_REFERENCIA_N,
+    TENSAO_REFERENCIA_REAL_N,
+    PontoSensor,
+)
 
 st.set_page_config(
     page_title="Monitoramento Preditivo de Catenária",
@@ -181,6 +191,23 @@ div[data-baseweb="select"] > div {{
 }}
 .aviso-tempo strong {{ color: var(--azul); }}
 .mini-nota {{ color: var(--texto-fraco); font-size: 0.62rem; margin-top: 0.1rem; line-height: 1.3; }}
+
+.comparativo {{ display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }}
+.comp-cartao {{
+    flex: 1; min-width: 220px; background: var(--superficie);
+    border: 1px solid var(--borda); border-radius: 14px; padding: 1.1rem 1.3rem;
+}}
+.comp-cartao.vencedor {{ border-color: rgba(125,211,168,0.45); }}
+.comp-titulo {{ color: var(--texto); font-size: 0.88rem; font-weight: 700; margin-bottom: 0.7rem; }}
+.comp-valor {{
+    font-family: ui-monospace, monospace; font-size: 1.7rem; font-weight: 600; color: var(--texto);
+}}
+.comp-rotulo {{ color: var(--texto-fraco); font-size: 0.68rem; text-transform: uppercase;
+    letter-spacing: 0.09em; margin-top: 0.3rem; }}
+.selo-vencedor {{
+    display: inline-block; margin-top: 0.6rem; font-size: 0.65rem; font-weight: 700;
+    color: var(--verde); letter-spacing: 0.08em; text-transform: uppercase;
+}}
 .rodape {{
     color: var(--texto-fraco); font-size: 0.72rem; line-height: 1.6;
     margin-top: 3.2rem; padding-top: 1.5rem; border-top: 1px solid var(--borda);
@@ -253,6 +280,53 @@ def _tema_grafico(fig: go.Figure, altura: int) -> go.Figure:
     return fig
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _comparar_ml_vs_fisico() -> dict:
+    """Reproduz scripts/treinar_estimador_ml.py, cacheado por 1h (é determinístico)."""
+    from src.analise.aprendizado import _rede_treinada
+    import numpy as np
+
+    reserva = np.linspace(0.03, 0.97, 12)
+    rede = _rede_treinada()
+    X, y, vibracoes = coletar_dataset_sintetico(reserva, seed=7)
+
+    estimados_ml = np.clip(rede.predict(X), 0.0, 1.0)
+    erro_ml = float(np.mean(np.abs(estimados_ml - y)))
+
+    estimados_esp = np.array([estimar_dano_espectral(v) for v in vibracoes])
+    erro_esp = float(np.mean(np.abs(estimados_esp - y)))
+
+    return {"erro_ml": erro_ml, "erro_espectral": erro_esp, "amostras": len(y)}
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _comparar_regime_real() -> dict:
+    """Reproduz scripts/comparar_regime_real.py, cacheado por 1h (é determinístico)."""
+    import numpy as np
+
+    def passagens_ate_critico(tensao_ref, expoente, seed, limite=2_000_000):
+        rng = np.random.default_rng(seed)
+        ponto = PontoSensor(sensor_id="CMP", km=0.0, tensao_base_n=13000.0, _rng=rng)
+        for i in range(1, limite + 1):
+            amplitude = rng.uniform(3000, 9000)
+            ponto.registrar_passagem_de_trem(amplitude, tensao_ref, expoente)
+            if ponto.dano_acumulado >= LIMIAR_CRITICO_SIM:
+                return i
+        return None
+
+    trens_por_dia = 120
+    passagens_demo = passagens_ate_critico(TENSAO_REFERENCIA_N, EXPOENTE_BASQUIN, seed=42)
+    passagens_real = passagens_ate_critico(TENSAO_REFERENCIA_REAL_N, EXPOENTE_BASQUIN_REAL, seed=42)
+
+    return {
+        "passagens_demo": passagens_demo,
+        "dias_demo": passagens_demo / trens_por_dia if passagens_demo else None,
+        "passagens_real": passagens_real,
+        "dias_real": passagens_real / trens_por_dia if passagens_real else None,
+        "fator": passagens_real / passagens_demo if passagens_demo and passagens_real else None,
+    }
+
+
 def _cartao_sensor(linha: pd.Series) -> str:
     etiquetas = ""
     if linha["estado"] == "ATENCAO":
@@ -275,6 +349,7 @@ def _cartao_sensor(linha: pd.Series) -> str:
   {_barra("Dano oficial (o maior)", oficial, COR_ESTADO[linha['estado']])}
   {_barra("por ciclos, Basquin/Miner", linha['dano_ciclos'], BORDA)}
   {_barra("espectral, FFT", linha['dano_espectral'], AZUL)}
+  {_barra("rede neural (comparativo)", linha['dano_ml'], "#9d7cd8") if pd.notna(linha.get('dano_ml')) else ''}
   <div class="rodape-sensor">
     <div><div class="mini-rotulo">divergência</div><div class="mini-valor">{divergencia:.3f}</div></div>
     <div><div class="mini-rotulo">vida útil restante</div><div class="mini-valor">{_formatar_rul(linha['rul_segundos'])}</div><div class="mini-nota">relógio acelerado da demo</div></div>
@@ -527,8 +602,83 @@ def main() -> None:
                               mode="lines", line=dict(color=TEXTO_FRACO, width=2)))
     fig2.add_trace(go.Scatter(x=hist["lido_em"], y=hist["dano_espectral"], name="espectral",
                               mode="lines", line=dict(color=AZUL, width=2)))
+    if "dano_ml" in hist and hist["dano_ml"].notna().any():
+        fig2.add_trace(go.Scatter(x=hist["lido_em"], y=hist["dano_ml"], name="rede neural",
+                                  mode="lines", line=dict(color="#9d7cd8", width=1.5, dash="dot")))
     fig2.update_yaxes(title_text="dano estimado")
     st.plotly_chart(_tema_grafico(fig2, 300), use_container_width=True, config={"displayModeBar": False})
+
+    st.markdown('<div class="secao">Rede neural vs. estimador físico</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="secao-sub">Treinei uma rede neural pequena no mesmo simulador e com a mesma '
+        'verdade usados para medir o estimador espectral, e medi as duas num conjunto de dano nunca '
+        'visto no treino. Não é sorte de uma rodada: testado em 4 pares de sementes diferentes, o '
+        'físico venceu as 4 (detalhe no README).</div>',
+        unsafe_allow_html=True,
+    )
+    try:
+        comp_ml = _comparar_ml_vs_fisico()
+        venceu_espectral = comp_ml["erro_espectral"] < comp_ml["erro_ml"]
+        st.markdown(
+            '<div class="comparativo">'
+            + f'<div class="comp-cartao{" vencedor" if venceu_espectral else ""}">'
+              f'<div class="comp-titulo">Espectral (1 parâmetro calibrado)</div>'
+              f'<div class="comp-valor">{comp_ml["erro_espectral"]:.4f}</div>'
+              f'<div class="comp-rotulo">erro médio absoluto</div>'
+              + ('<div class="selo-vencedor">venceu</div>' if venceu_espectral else '') + '</div>'
+            + f'<div class="comp-cartao{"" if venceu_espectral else " vencedor"}">'
+              f'<div class="comp-titulo">Rede neural (MLP, aprendida)</div>'
+              f'<div class="comp-valor">{comp_ml["erro_ml"]:.4f}</div>'
+              f'<div class="comp-rotulo">erro médio absoluto, {comp_ml["amostras"]} amostras de reserva</div>'
+              + ('' if venceu_espectral else '<div class="selo-vencedor">venceu</div>') + '</div>'
+            + '</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<div class="secao-sub" style="margin-top:-0.4rem;">A rede compete em desvantagem aqui: '
+            'ela tem que aprender do zero, com poucas amostras, uma relação física que o estimador '
+            'espectral já embute (só duas frequências do sinal carregam ruído útil). Não significa '
+            'que rede neural é sempre pior, significa que, quando o modelo físico é bom e o dado é '
+            'escasso, ele ainda ganha.</div>',
+            unsafe_allow_html=True,
+        )
+    except ImportError:
+        st.markdown('<div class="vazio">Precisa de scikit-learn instalado para essa comparação.</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="secao">Regime acelerado vs. regime real</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="secao-sub">A mesma física (Basquin/Miner), rodada duas vezes: com as constantes '
+        'aceleradas desta demo, e com números reais publicados (tensão de fio de contato 15-30kN por '
+        'classe de velocidade, expoente de Basquin entre -0.05 e -0.12 para metais). Mede quantas '
+        'passagens de trem cada regime leva até o limiar crítico.</div>',
+        unsafe_allow_html=True,
+    )
+    comp_regime = _comparar_regime_real()
+    st.markdown(
+        '<div class="comparativo">'
+        + '<div class="comp-cartao">'
+          f'<div class="comp-titulo">Regime acelerado (esta demo)</div>'
+          f'<div class="comp-valor">{comp_regime["passagens_demo"]:,}'.replace(",", ".") + '</div>'
+          f'<div class="comp-rotulo">passagens até o limiar crítico · {comp_regime["dias_demo"]:.1f} dias a 120 trens/dia</div>'
+          '</div>'
+        + '<div class="comp-cartao vencedor">'
+          f'<div class="comp-titulo">Regime real (constantes citadas)</div>'
+          f'<div class="comp-valor">{comp_regime["passagens_real"]:,}'.replace(",", ".") + '</div>'
+          f'<div class="comp-rotulo">passagens até o limiar crítico · {comp_regime["dias_real"]:.0f} dias '
+          f'(~{comp_regime["dias_real"]/365:.2f} anos) a 120 trens/dia</div>'
+          '</div>'
+        + '</div>',
+        unsafe_allow_html=True,
+    )
+    if comp_regime["fator"]:
+        st.markdown(
+            f'<div class="secao-sub" style="margin-top:-0.4rem;">Fator de aceleração: '
+            f'<strong style="color:var(--texto);">{comp_regime["fator"]:.0f}x</strong>. O regime real '
+            f'cai na ordem de grandeza certa de fadiga de infraestrutura ferroviária de verdade '
+            f'(meses a anos, não minutos), o que dá mais confiança na física do modelo mesmo com '
+            f'parâmetro de exemplo.</div>',
+            unsafe_allow_html=True,
+        )
 
     total = f"{len(leituras):,}".replace(",", ".")
     st.markdown(
