@@ -134,6 +134,20 @@ h1.titulo {{
 .mini-rotulo {{ color: var(--texto-fraco); font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.1em; }}
 .mini-valor {{ font-family: ui-monospace, monospace; color: var(--texto-suave); font-size: 0.88rem; margin-top: 0.2rem; }}
 
+.passos {{ display: flex; gap: 0.9rem; flex-wrap: wrap; margin-bottom: 0.6rem; }}
+.passo {{
+    flex: 1; min-width: 220px; background: var(--superficie);
+    border: 1px solid var(--borda); border-radius: 14px; padding: 1.1rem 1.2rem;
+}}
+.passo-num {{
+    font-family: ui-monospace, monospace; color: var(--destaque);
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em; margin-bottom: 0.5rem;
+}}
+.passo-titulo {{ color: var(--texto); font-size: 0.92rem; font-weight: 700; margin-bottom: 0.4rem; }}
+.passo-texto {{ color: var(--texto-suave); font-size: 0.82rem; line-height: 1.6; }}
+.passo-texto em {{ color: var(--texto-fraco); font-style: normal; font-size: 0.76rem;
+    display: block; margin-top: 0.5rem; }}
+
 .dicionario {{ display: flex; flex-direction: column; gap: 0.9rem; }}
 .verbete {{ display: grid; grid-template-columns: 13rem 1fr; gap: 1.2rem; align-items: start; }}
 .verbete-termo {{ color: var(--texto); font-size: 0.83rem; font-weight: 700; }}
@@ -160,6 +174,13 @@ div[data-baseweb="select"] > div {{
     background: var(--superficie); border: 1px dashed var(--borda); border-radius: 14px;
     padding: 2rem; text-align: center; color: var(--texto-fraco); font-size: 0.88rem;
 }}
+.aviso-tempo {{
+    background: rgba(122,162,247,0.07); border: 1px solid rgba(122,162,247,0.3);
+    border-radius: 12px; padding: 0.85rem 1.1rem; margin-bottom: 1.6rem;
+    color: var(--texto-suave); font-size: 0.8rem; line-height: 1.6;
+}}
+.aviso-tempo strong {{ color: var(--azul); }}
+.mini-nota {{ color: var(--texto-fraco); font-size: 0.62rem; margin-top: 0.1rem; line-height: 1.3; }}
 .rodape {{
     color: var(--texto-fraco); font-size: 0.72rem; line-height: 1.6;
     margin-top: 3.2rem; padding-top: 1.5rem; border-top: 1px solid var(--borda);
@@ -256,7 +277,7 @@ def _cartao_sensor(linha: pd.Series) -> str:
   {_barra("espectral, FFT", linha['dano_espectral'], AZUL)}
   <div class="rodape-sensor">
     <div><div class="mini-rotulo">divergência</div><div class="mini-valor">{divergencia:.3f}</div></div>
-    <div><div class="mini-rotulo">vida útil restante</div><div class="mini-valor">{_formatar_rul(linha['rul_segundos'])}</div></div>
+    <div><div class="mini-rotulo">vida útil restante</div><div class="mini-valor">{_formatar_rul(linha['rul_segundos'])}</div><div class="mini-nota">relógio acelerado da demo</div></div>
     <div><div class="mini-rotulo">sinal/ruído</div><div class="mini-valor">{linha['snr_db']:.1f} dB</div></div>
     <div><div class="mini-rotulo">ciclos contados</div><div class="mini-valor">{int(linha['ciclos_contados'])}</div></div>
   </div>
@@ -264,50 +285,84 @@ def _cartao_sensor(linha: pd.Series) -> str:
 """
 
 
+PASSOS = [
+    (
+        "Os sensores medem",
+        "Cada ponto da via manda, a cada segundo, o quanto o cabo está vibrando e a força que "
+        "ele está aguentando. Vibração importa porque um cabo desgastado treme diferente de um "
+        "cabo novo, do mesmo jeito que uma peça solta chacoalha.",
+        "150 pontos simulados nesta demonstração",
+    ),
+    (
+        "Tudo chega junto",
+        "Milhares de sensores falando ao mesmo tempo viram um problema de trânsito de dados. "
+        "Um programa em Go recebe todas as conexões em paralelo e organiza as leituras sem "
+        "perder nenhuma, mesmo em pico.",
+        "testado com 2.000 sensores simultâneos, zero falhas",
+    ),
+    (
+        "O sistema calcula o desgaste",
+        "Duas contas independentes rodam sobre os mesmos dados: uma soma o estrago de cada trem "
+        "que passou, outra escuta o ruído da vibração. Quando as duas discordam muito, é sinal "
+        "de que aquele ponto tem algo errado além do uso normal.",
+        "erro médio de 0,4% contra o desgaste real",
+    ),
+    (
+        "O painel mostra o risco",
+        "Cada ponto recebe um estado: normal, atenção ou crítico. Quem está em atenção aparece "
+        "no topo com a estimativa de quanto tempo falta, para a equipe priorizar a viagem até "
+        "lá antes que o cabo arrebente.",
+        "é o que você está vendo abaixo",
+    ),
+]
+
 DICIONARIO = [
     (
-        "Dano acumulado", "0 a 1",
-        "Fração da vida à fadiga já consumida pelo cabo, pela regra de Palmgren-Miner. "
-        "<code>0</code> é cabo novo, <code>1</code> é a falha teórica. O alerta dispara "
-        "antes: <code>0.3</code> vira atenção e <code>0.7</code> vira crítico, com margem de segurança.",
+        "Dano acumulado", "de 0 a 1",
+        "Quanto da vida do cabo já foi gasta. <code>0</code> é cabo novo, <code>1</code> seria o "
+        "rompimento. O alerta não espera chegar em 1: a partir de <code>0.3</code> o ponto entra "
+        "em atenção e em <code>0.7</code> vira crítico, para sobrar tempo de ir lá trocar.",
     ),
     (
-        "Por ciclos", "Basquin/Miner",
-        "Conta os picos de tensão de cada passagem de trem e soma o quanto cada ciclo consome "
-        "da vida do cabo. Enxerga bem carga, mas é <strong>cego para desgaste acelerado</strong>: "
-        "dois pontos com a mesma carga dão a mesma contagem, mesmo que um esteja se degradando "
-        "muito mais rápido por defeito de instalação.",
+        "Por ciclos", "conta o que o trem faz",
+        "Soma o estrago de cada trem que passou, do mesmo jeito que dobrar um arame muitas vezes "
+        "acaba quebrando ele. Funciona bem para uso normal, mas <strong>não enxerga defeito de "
+        "fábrica ou instalação</strong>: dois pontos que aguentaram os mesmos trens dão a mesma "
+        "conta, mesmo que um deles esteja bem pior que o outro.",
     ),
     (
-        "Espectral", "FFT da vibração",
-        "Separa por FFT os dois picos conhecidos do sinal (18 Hz da ressonância do cabo, 60 Hz "
-        "da rede de tração) e mede o ruído de banda larga que sobra. Esse ruído cresce com "
-        "microfraturas e folga mecânica, então <strong>enxerga o desgaste real</strong>, "
-        "independente da carga.",
+        "Espectral", "escuta a vibração",
+        "Olha o chiado do sinal de vibração. O cabo tem duas vibrações que sempre existem e são "
+        "conhecidas (a do próprio cabo balançando e a da rede elétrica), então o sistema separa "
+        "essas duas e mede o resto. Esse resto cresce quando aparecem microtrincas e folga, "
+        "então <strong>denuncia o estado real do cabo</strong>, não importa quantos trens passaram.",
     ),
     (
-        "Dano oficial", "o maior dos dois",
-        "O estado do sensor sai do maior valor entre os dois estimadores. É a leitura "
-        "conservadora: num sistema que existe para avisar antes da falha, ignorar o estimador "
-        "que está mais alto seria deixar passar justamente o caso perigoso.",
+        "Dano oficial", "vale o pior dos dois",
+        "Entre as duas contas, o sistema fica sempre com a mais pessimista. Num sistema feito "
+        "para avisar antes da falha, escolher o número menor seria justamente ignorar o aviso "
+        "que importa.",
     ),
     (
-        "Divergência", "desgaste acelerado",
-        "Distância entre os dois estimadores. Quando passa de <code>0.15</code>, é assinatura de "
-        "ponto que se degrada mais rápido que a carga explica, ou seja catenária velha ou "
-        "defeituosa. Serve de aviso antecipado, antes mesmo do dano cruzar o limiar de atenção.",
+        "Divergência", "as duas contas discordando",
+        "A diferença entre as duas contas. Se o trem que passou não explica o estrago que a "
+        "vibração mostra, tem algo errado com aquele ponto específico: cabo velho, emenda ruim, "
+        "instalação malfeita. Acima de <code>0.15</code> o ponto é marcado, e isso aparece "
+        "<strong>antes</strong> mesmo dele virar caso de atenção.",
     ),
     (
-        "Vida útil restante", "RUL",
-        "Extrapola a taxa média de acúmulo de dano do sensor para estimar quanto falta até o "
-        "limiar crítico. Assume que o ritmo observado continua, então serve para priorizar "
-        "manutenção, não como data de validade.",
+        "Vida útil restante", "quanto tempo falta",
+        "Olhando o ritmo em que aquele ponto vem se desgastando, quanto tempo até chegar no "
+        "nível crítico. Serve para decidir a ordem das visitas da equipe, não como data marcada: "
+        "se o ritmo mudar, a estimativa muda junto. <strong>Nesta demonstração o relógio é "
+        "acelerado</strong> (ver aviso no topo do painel), então os minutos aqui equivalem a "
+        "semanas ou meses reais, não é a via se desgastando de verdade tão rápido.",
     ),
     (
-        "Sinal/ruído", "SNR, em dB",
-        "Potência dos dois picos conhecidos dividida pelo piso de ruído. Cai conforme o cabo se "
-        "degrada, porque é o ruído que cresce. Vale como indicador independente de qualidade do "
-        "sinal, útil numa via eletrificada onde a interferência é alta.",
+        "Sinal/ruído", "qualidade da leitura",
+        "O quanto o sinal limpo se destaca do chiado. Cai conforme o cabo piora, porque é o "
+        "chiado que aumenta. Também serve para saber se dá para confiar na medição, já que via "
+        "eletrificada tem muita interferência.",
     ),
 ]
 
@@ -318,11 +373,24 @@ def main() -> None:
     st.markdown('<span class="marca">LCML · Manutenção preditiva ferroviária</span>', unsafe_allow_html=True)
     st.markdown('<h1 class="titulo">Monitoramento de catenária</h1>', unsafe_allow_html=True)
     st.markdown(
-        '<p class="chamada">Sensores simulados ao longo da linha publicam vibração e tensão '
-        'mecânica, um <strong>gateway concorrente em Go</strong> ingere tudo, e um '
-        '<strong>motor em Python</strong> estima o desgaste de duas formas independentes para '
-        'apontar quais pontos vão falhar primeiro. Este painel só lê o resultado já persistido '
-        'no Supabase.</p>',
+        '<p class="chamada">A <strong>catenária</strong> é o cabo suspenso acima dos trilhos que '
+        'leva energia até o trem. Ela trabalha o tempo todo sob esforço: o peso de cada composição '
+        'que passa, vento, o calor que dilata o cabo, o atrito do pantógrafo. Esse desgaste se '
+        'acumula em silêncio durante meses, e quando o cabo rompe, ele rompe sem aviso, deixando '
+        'a linha parada.</p>'
+        '<p class="chamada" style="margin-top:0.9rem;">Este projeto espalha <strong>sensores ao '
+        'longo da via</strong> para medir a vibração e o esforço em cada ponto, e calcula quanto '
+        'da vida útil cada trecho já gastou. O objetivo é direto: <strong>apontar quais pontos vão '
+        'falhar primeiro</strong>, para a manutenção chegar antes do rompimento em vez de correr '
+        'atrás depois.</p>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div class="aviso-tempo"><strong>Relógio acelerado.</strong> Esta é uma demonstração: '
+        'o simulador comprime meses de desgaste real em minutos, para o pipeline inteiro poder '
+        'ser testado numa sessão de trabalho em vez de esperar dias. Os valores de "vida útil '
+        'restante" abaixo seguem esse mesmo relógio acelerado, então não leia os minutos como '
+        'minutos reais de via, o que importa é a ordem de prioridade entre os pontos.</div>',
         unsafe_allow_html=True,
     )
 
@@ -364,6 +432,23 @@ def main() -> None:
         + _cartao(len(acelerados), "Desgaste acelerado",
                   "Degradam mais rápido do que a carga explica. Aviso antecipado.",
                   "v-azul" if acelerados else "")
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('<div class="secao">Como funciona</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="secao-sub">Do cabo na via até o alerta na tela, em quatro etapas.</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div class="passos">'
+        + "".join(
+            f'<div class="passo"><div class="passo-num">{i:02d}</div>'
+            f'<div class="passo-titulo">{titulo}</div>'
+            f'<div class="passo-texto">{texto}<em>{nota}</em></div></div>'
+            for i, (titulo, texto, nota) in enumerate(PASSOS, start=1)
+        )
         + "</div>",
         unsafe_allow_html=True,
     )
