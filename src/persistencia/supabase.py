@@ -58,7 +58,7 @@ def gravar_leituras_lote(conexao, linhas: list[tuple]) -> None:
             insert into catenaria_leituras
                 (sensor_id, km, lido_em, tensao_mecanica_n, temperatura_c,
                  dano_ciclos, dano_espectral, snr_db, rul_segundos, estado,
-                 ciclos_contados)
+                 ciclos_contados, dano_espectral_bruto, desgaste_acelerado)
             values %s
             """,
             linhas,

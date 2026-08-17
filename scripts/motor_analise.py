@@ -157,6 +157,8 @@ def main() -> None:
                     avaliacao.rul_segundos,
                     avaliacao.estado,
                     avaliacao.ciclos_contados,
+                    avaliacao.dano_espectral_bruto,
+                    avaliacao.desgaste_acelerado,
                 ))
                 if len(lote_leituras) >= args.lote_supabase:
                     _flush_lote()
