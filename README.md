@@ -628,6 +628,58 @@ espectral que pega o caso que a contagem de ciclos sozinha não vê. Um
 projeto com sensor embarcado teria o mesmo desafio de concorrência e a
 mesma matemática, só mudaria o formato de entrada do dado.
 
+### Custo: rede de sensor fixo vs. trem de medição
+
+A pergunta natural depois de admitir que sensor fixo não é como a
+indústria resolve isso hoje é: quanto custaria fazer do jeito deste
+projeto, e como isso se compara ao que já existe?
+
+**Sensor fixo (arquitetura deste projeto), estimativa de hardware por
+km.** Em 2026 um nó de vibração sem fio (acelerômetro MEMS + rádio +
+bateria + case) custa menos de US\$50 de peça, queda de quase 12x frente
+aos ~US\$600/ponto de 2019, puxada pelo custo do próprio chip MEMS caindo
+de US\$200 para menos de US\$8. Com esse preço de peça:
+
+| densidade | sensores/km | custo de hardware/km |
+|---|---:|---:|
+| 1 a cada 200m | 5 | ~US\$250 |
+| 1 a cada 100m | 10 | ~US\$500 |
+
+Isso é só o nó de sensor. Gateway de rádio de longo alcance por trecho,
+energização e instalação ficam de fora porque não achei número público
+confiável pra eles, e inventar seria pior que admitir a lacuna.
+
+**Trem de medição (como a indústria faz hoje).** O Network Rail (Reino
+Unido) roda um "New Measurement Train" com sistema PLPR (laser + câmera)
+que mede posição e desgaste do fio de contato a até 160km/h, com precisão
+de 0.3mm num único passe. Ele não cobre a linha de forma contínua, cobre
+por rodada periódica: quase 1 milhão de milhas de via ao longo do período
+2019-2024. O ganho documentado é £2.2 milhões economizados frente à
+inspeção manual (até fev/2019), mas o preço de aquisição/operação do
+trem em si não é público, é o tipo de número que só sai em cotação direta
+com fabricante (Siemens Sicat CMS, HBK), e as fontes que achei descrevem
+o equipamento só como "caro de comprar e operar", sem valor.
+
+**O que dá pra concluir com isso.** Sensor fixo é ordens de grandeza mais
+barato por ponto, mas mede outra coisa: vibração, uma leitura indireta
+de fadiga. O trem mede geometria e desgaste do fio diretamente, com
+precisão que sensor de vibração não entrega, mas só naquele instante em
+que passa, meses de intervalo entre rodadas na mesma linha. Não são
+substitutos, são medições complementares.
+
+**O benefício de juntar os dois.** Hoje a inspeção por trem roda em
+calendário fixo, meses entre passagens pela mesma linha, porque não tem
+como saber de antemão qual trecho degradou mais rápido. Uma rede de
+sensor fixo barato muda isso: se o dano acumulado calculado por
+`src/analise/motor.py` sobe rápido demais num trecho específico entre
+duas rodadas do trem, esse trecho pode furar a fila e ser priorizado na
+próxima passagem, em vez de esperar o calendário. Isso não elimina o
+trem (ele continua sendo o único jeito de medir geometria de fio com
+precisão), mas transforma manutenção de "calendário fixo" pra "orientada
+por condição", o mesmo princípio de manutenção preditiva que motivou o
+projeto inteiro, só aplicado na escala de "quando mandar o trem", não só
+"quando trocar a peça".
+
 ### Experimento: rede neural venceria o estimador físico?
 
 Não dá pra comparar com a rede neural da literatura real (dataset
@@ -715,6 +767,25 @@ com uma rede de sensores fixos como aqui):
 - *A Non-Intrusive Monitoring System on Train Pantographs for the
   Maintenance of Overhead Contact Lines* (2023).
   [PMC, acesso aberto](https://pmc.ncbi.nlm.nih.gov/articles/PMC10536569/).
+
+**Custo de sensor fixo vs. trem de medição** (seção "Onde este projeto se
+encaixa no estado da arte" acima):
+
+- *IoT Sensors for Predictive Maintenance: 2026 Complete Guide*.
+  [Oxmaint](https://oxmaint.com/article/iot-sensors-predictive-maintenance-guide).
+  Fonte do preço de nó de vibração sem fio em 2026 (< US\$50) e da queda
+  de custo do chip MEMS.
+- *Best Wireless Vibration Monitoring Systems for Manufacturing in 2026*.
+  [MachineCDN](https://www.machinecdn.com/blog/best-wireless-vibration-monitoring-systems-2026/).
+- *Network Rail measurement trains take asset monitoring to the next
+  level*. [International Railway
+  Journal](https://www.railjournal.com/in_depth/network-rail-measurement-trains-asset-monitoring/).
+  Fonte da cobertura do PLPR e da economia de £2.2 milhões frente à
+  inspeção manual.
+- *The contactless catenary monitoring system Sicat® CMS* (Siemens).
+  [PDF](https://assets.new.siemens.com/siemens/assets/api/uuid:fc73a788-70d4-4cba-82ba-41208bcef48b/siemens-sicat-cms-pi-en.pdf).
+  Preço de aquisição não divulgado publicamente, citado aqui só como
+  exemplo de fornecedor real do setor.
 
 ## Créditos
 
